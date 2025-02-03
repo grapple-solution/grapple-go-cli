@@ -233,7 +233,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	if installKubeblocks {
-		utils.InfoMessage("Waiting for kubeblocks to be ready...")
+		utils.InfoMessage("Waiting for kubeblocks to be ready, it might take a while...")
 		logOnFileStart()
 		kubeblocksWg.Wait()
 		logOnCliAndFileStart()
