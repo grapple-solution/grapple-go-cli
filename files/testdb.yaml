@@ -1,0 +1,111 @@
+gras: {}
+grapi:
+  # beimagetag: "v0.112"
+  ingress: true
+  ssl: false
+  sslissuer: letsencrypt-grapple-demo
+  autorestartgruim: true
+  extraSecrets: 
+  - grappledb-conn-credential
+  initContainers:
+  - name: init-db
+    spec:
+      name: init-db
+      image: mysql
+      command: ['bash', '-c', 'sleep 5; while ! mysql -h $(host) -P $(port) -u $(username) -p$(password) -e "show databases;" 2>/dev/null; do echo -n .; sleep 2; done; if mysql -h $(host) -P $(port) -u $(username) -p$(password) -e "use classicmodelsid; select * from customers limit 1;"; then echo "database already exists..."; else curl -o /tmp/classicmodelsid.sql https://raw.githubusercontent.com/grapple-solutions/grapple-test-data/main/classicmodelsid/classicmodelsid.sql; mysql -h $(host) -P $(port) -u $(username) -p$(password) < /tmp/classicmodelsid.sql; rm /tmp/classicmodelsid.sql; fi']
+  datasources:
+  - name: "classicmodelsdb"
+    spec:
+      mysql:
+        name: "classicmodelsdb"
+        url: ""
+        host: "$(host)"
+        port: "$(port)"
+        user: "$(username)"
+        password: "$(password)"
+        database: classicmodelsid
+  discoveries:
+  - name: "classicmodelsdic"
+    spec:
+      dataSource: "classicmodelsdb"
+      schema: "classicmodelsid"
+      all: true
+      disableCamelCase: false
+      # yes: "undefined"
+  relations:
+  - name: "employees"
+    spec:
+      relationName: "employees"
+      sourceModel: "Customers"
+      destinationModel: "Employees"
+      foreignKeyName: "employeesId"
+      relationType: "belongsTo"
+      registerInclusionResolver: true
+  - name: "offices"
+    spec:
+      relationName: "offices"
+      sourceModel: "Employees"
+      destinationModel: "Offices"
+      foreignKeyName: "officesId"
+      relationType: "belongsTo"
+      registerInclusionResolver: true
+  - name: "orders"
+    spec:
+      relationName: "orders"
+      sourceModel: "Orderdetails"
+      destinationModel: "Orders"
+      foreignKeyName: "ordersId"
+      relationType: "belongsTo"
+      registerInclusionResolver: true
+  - name: "customers"
+    spec:
+      relationName: "customers"
+      sourceModel: "Orders"
+      destinationModel: "Customers"
+      foreignKeyName: "customersId"
+      relationType: "belongsTo"
+      registerInclusionResolver: true
+  - name: "productlines"
+    spec:
+      relationName: "productlines"
+      sourceModel: "Products"
+      destinationModel: "Productlines"
+      foreignKeyName: "productlinesId"
+      relationType: "belongsTo"
+      registerInclusionResolver: true
+  - name: customerorders
+    spec:
+      destinationModel: Orders
+      foreignKeyName: customersId
+      registerInclusionResolver: true
+      relationName: customerorders
+      relationType: hasMany
+      sourceModel: Customers
+  - name: officeemployees
+    spec:
+      destinationModel: Employees
+      foreignKeyName: officesId
+      registerInclusionResolver: true
+      relationName: officeemployees
+      relationType: hasMany
+      sourceModel: Offices
+  - name: productlineproduct
+    spec:
+      destinationModel: Products
+      foreignKeyName: productlinesId
+      registerInclusionResolver: true
+      relationName: productlineproduct
+      relationType: hasMany
+      sourceModel: Productlines
+  restcruds:
+  - name: "classicmodelsrc"
+    spec:
+      datasource: "classicmodelsdb"
+
+gruim:
+  # uiimagetag: "0.1.38"
+  ssl: false
+  sslissuer: letsencrypt-grapple-demo
+  style: '{"colors":{"primary":{"DEFAULT":"#004a99","fg":"#ffffff"},"accent":{"DEFAULT":"#fa7252","fg":"#ffffff"}}}'
+  config: ""
+  additionalpackages: ""
