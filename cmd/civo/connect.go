@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/civo/civogo"
 	"github.com/grapple-solution/grapple_cli/utils"
@@ -123,8 +124,20 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 // Configure kubectl for the created cluster
 func configureKubeConfig(kubeConfig string) (*rest.Config, error) {
+	// Get home directory
+	home := os.Getenv("HOME")
+	if home == "" {
+		return nil, fmt.Errorf("HOME environment variable not set")
+	}
 
-	configPath := fmt.Sprintf("%s/.kube/config", os.Getenv("HOME"))
+	// Create .kube directory if it doesn't exist
+	kubeDir := filepath.Join(home, ".kube")
+	if err := os.MkdirAll(kubeDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create .kube directory: %w", err)
+	}
+
+	// Write kubeconfig file
+	configPath := filepath.Join(kubeDir, "config")
 	if err := os.WriteFile(configPath, []byte(kubeConfig), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write kubeconfig: %w", err)
 	}
