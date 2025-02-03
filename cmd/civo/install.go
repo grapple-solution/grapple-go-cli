@@ -1510,18 +1510,38 @@ func installKubeBlocksOnCluster(
 		return fmt.Errorf("failed to create chart repository object: %w", err)
 	}
 
-	path, err := chartRepo.DownloadIndexFile()
-	if err != nil {
-		return fmt.Errorf("failed to download index file from %s: %w", repoEntry.URL, err)
+	// Add repo to repositories.yaml
+	repoFile := settings.RepositoryConfig
+	b, err := os.ReadFile(repoFile)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read repository file: %w", err)
 	}
-	utils.InfoMessage(fmt.Sprintf("Helm repository index downloaded to %s", path))
+
+	var f repo.File
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return fmt.Errorf("failed to unmarshal repository file: %w", err)
+	}
+
+	// Add new repo or update existing
+	f.Add(&repoEntry)
+
+	if err := f.WriteFile(repoFile, 0644); err != nil {
+		return fmt.Errorf("failed to write repository file: %w", err)
+	}
+
+	_, err = chartRepo.DownloadIndexFile()
+	if err != nil {
+		return fmt.Errorf("failed to download repository index: %w", err)
+	}
+
+	utils.InfoMessage("Added and updated kubeblocks helm repository")
 
 	// 4. Create a Helm install client
 	installClient := action.NewInstall(helmCfg)
 
 	installClient.ReleaseName = "kubeblocks"
 	installClient.Namespace = "default"
-	installClient.Timeout = 480 * time.Second // 8 minute timeout
+	installClient.Timeout = 1200 * time.Second // 20 minute timeout
 	installClient.Wait = true
 
 	// 5. Locate and load the chart
