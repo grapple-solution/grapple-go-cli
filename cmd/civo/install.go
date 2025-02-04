@@ -663,7 +663,7 @@ func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, ch
 
 	// Create the Helm settings (used for CLI-based defaults)
 	settings := cli.New()
-
+	settings.SetNamespace(namespace)
 	// Prepare an action.Configuration, which wires up Helm internals
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(
