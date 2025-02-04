@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -25,7 +23,6 @@ import (
 	"helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/registry"
-	"helm.sh/helm/v3/pkg/repo"
 
 	// Kubernetes libraries
 
@@ -54,12 +51,10 @@ sequentially, waiting for required resources in between, mirroring the step-by-s
 func init() {
 	InstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "", "Version of Grapple to install")
 	InstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
-	InstallCmd.Flags().StringVar(&kubeContext, "kube-context", "", "Kubernetes context")
 	InstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	InstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
 	InstallCmd.Flags().StringVar(&civoClusterID, "civo-cluster-id", "", "Civo cluster ID")
 	InstallCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
-	InstallCmd.Flags().StringVar(&civoAPIKey, "civo-api-key", "", "Civo API key")
 	InstallCmd.Flags().StringVar(&clusterIP, "cluster-ip", "", "Cluster IP")
 	InstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple")
 	InstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name")
@@ -99,7 +94,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	// 1) Create/fetch the Civo client and cluster info, build a Kube + Helm client
-	kubeClient, restConfig, helmConfig, err := initClientsAndConfig(connectToCivoCluster)
+	kubeClient, restConfig, err := initClientsAndConfig(connectToCivoCluster)
 	if err != nil {
 		return err
 	}
@@ -112,7 +107,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		kubeblocksWg.Add(1)
 		go func() {
 			defer kubeblocksWg.Done()
-			if err := installKubeBlocksOnCluster(kubeClient, helmConfig, restConfig); err != nil {
+			if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 				utils.ErrorMessage("kubeblocks installation error: " + err.Error())
 				kubeblocksInstallStatus = false
 				kubeblocksInstallError = err
@@ -136,7 +131,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(helmConfig, kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFile)
+	err = helmDeployReleaseWithRetry(kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-init: %w", err)
@@ -159,7 +154,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// // Step 4) Deploy "grsf"
 	utils.InfoMessage("Deploying 'grsf' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(helmConfig, kubeClient, "grsf", "grpl-system", grappleVersion, valuesFile)
+	err = helmDeployReleaseWithRetry(kubeClient, "grsf", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf: %w", err)
@@ -177,7 +172,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// // Step 5) Deploy "grsf-config"
 	utils.InfoMessage("Deploying 'grsf-config' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(helmConfig, kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFile)
+	err = helmDeployReleaseWithRetry(kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-config: %w", err)
@@ -195,13 +190,13 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 6) Deploy "grsf-integration"
 	utils.InfoMessage("Deploying 'grsf-integration' chart...")
 	logOnFileStart()
-	if err := helmDeployReleaseWithRetry(helmConfig, kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFile); err != nil {
+	if err := helmDeployReleaseWithRetry(kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFile); err != nil {
 		return fmt.Errorf("failed to deploy grsf-integration: %w", err)
 	}
 
 	utils.InfoMessage("Waiting for grsf-integration to be ready...")
 	logOnFileStart()
-	err = waitForGrsfIntegration(kubeClient, restConfig)
+	err = waitForGrsfIntegration(restConfig)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-integration not ready: %w", err)
@@ -212,7 +207,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if sslEnable {
 		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.) - placeholder logic.")
 		logOnFileStart()
-		err = createClusterIssuer(kubeClient, restConfig)
+		err = createClusterIssuer(kubeClient)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to create clusterissuer: %w", err)
@@ -224,7 +219,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if waitForReady {
 		utils.InfoMessage("Waiting for Grapple to be ready...")
 		logOnFileStart()
-		err = waitForGrappleReady(kubeClient, restConfig)
+		err = waitForGrappleReady(restConfig)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
@@ -248,7 +243,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func waitForGrappleReady(kubeClient apiv1.Interface, restConfig *rest.Config) error {
+func waitForGrappleReady(restConfig *rest.Config) error {
 	// Wait for all Crossplane packages to be healthy
 	utils.InfoMessage("Waiting for grpl to be ready")
 
@@ -321,16 +316,16 @@ func prepareValuesFile() error {
 			"dev":                   "false",
 			"ssl":                   fmt.Sprintf("%v", sslEnable),
 			"sslissuer":             sslIssuer,
-			"cluster-name":          clusterName,
-			"grapple-dns":           completeDomain,
-			"grapple-version":       grappleVersion,
-			"grapple-license":       grappleLicense,
-			"provider-cluster-type": "CIVO",
+			"CLUSTER_NAME":          clusterName,
+			"GRAPPLE_DNS":           completeDomain,
+			"GRAPPLE_VERSION":       grappleVersion,
+			"GRAPPLE_LICENSE":       grappleLicense,
+			"PROVIDER_CLUSTER_TYPE": "CIVO",
 
 			// Civo specific fields
-			"civo-cluster-id": civoClusterID,
-			"civo-region":     civoRegion,
-			"civo-master-ip":  clusterIP,
+			"CIVO_CLUSTER_ID": civoClusterID,
+			"CIVO_REGION":     civoRegion,
+			"CIVO_MASTER_IP":  clusterIP,
 		},
 	}
 
@@ -375,7 +370,7 @@ func prepareValuesFile() error {
 // 3) Build a K8s client-go client
 // 4) Build a Helm action.Configuration
 // -----------------------------------------------------------------------------
-func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *rest.Config, *action.Configuration, error) {
+func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *rest.Config, error) {
 	// Check if running inside CIVO cluster
 	insideCivoCluster := false
 	if civoClusterID != "" {
@@ -394,7 +389,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 			civoAPIKey = os.Getenv("CIVO_API_TOKEN")
 		}
 		if civoAPIKey == "" {
-			return nil, nil, nil, fmt.Errorf("failed to get CIVO API key form env")
+			return nil, nil, fmt.Errorf("failed to get CIVO API key form env")
 		}
 
 		// Get CIVO region if not provided
@@ -407,21 +402,21 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 			}
 			result, err := utils.PromptSelect("Select CIVO region", regions)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to select region: %w", err)
+				return nil, nil, fmt.Errorf("failed to select region: %w", err)
 			}
 			civoRegion = result
 		}
 
 		client, err = civogo.NewClient(civoAPIKey, civoRegion)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create civo client: %w", err)
+			return nil, nil, fmt.Errorf("failed to create civo client: %w", err)
 		}
 
 		// Get cluster info
 		if clusterName == "" {
 			clusters, err := client.ListKubernetesClusters()
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to list clusters: %w", err)
+				return nil, nil, fmt.Errorf("failed to list clusters: %w", err)
 			}
 
 			clusterNames := make([]string, len(clusters.Items))
@@ -431,20 +426,20 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 
 			result, err := utils.PromptSelect("Select CIVO cluster", clusterNames)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to select cluster: %w", err)
+				return nil, nil, fmt.Errorf("failed to select cluster: %w", err)
 			}
 			clusterName = result
 		}
 
 		err = connectToCivoCluster()
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to connect to civo cluster: %w", err)
+			return nil, nil, fmt.Errorf("failed to connect to civo cluster: %w", err)
 		}
 
 		var cluster *civogo.KubernetesCluster
 		cluster, err = findClusterByName(client, clusterName)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get civo cluster: %w", err)
+			return nil, nil, fmt.Errorf("failed to get civo cluster: %w", err)
 		}
 
 		// Get cluster ID if not provided
@@ -456,7 +451,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		if !cluster.Ready {
 			utils.InfoMessage("Waiting for cluster to be ready...")
 			if err := waitForClusterReady(client, cluster); err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 		}
 
@@ -470,7 +465,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		if civoEmailAddress == "" {
 			result, err := utils.PromptInput("Enter CIVO email address")
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to get email address: %w", err)
+				return nil, nil, fmt.Errorf("failed to get email address: %w", err)
 			}
 			civoEmailAddress = result
 
@@ -489,23 +484,23 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		kubeconfigBytes := []byte(cluster.KubeConfig)
 		restConfig, err = clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get email address: %w", err)
+			return nil, nil, fmt.Errorf("failed to get email address: %w", err)
 		}
 		k8sClient, err = apiv1.NewForConfig(restConfig)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+			return nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 		}
 
 	} else {
 		// Inside cluster, use in-cluster config
 		restConfig, err = rest.InClusterConfig()
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+			return nil, nil, fmt.Errorf("failed to get in-cluster config: %w", err)
 		}
 
 		k8sClient, err := apiv1.NewForConfig(restConfig)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
+			return nil, nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 		}
 
 		// Get cluster IP when inside cluster
@@ -518,7 +513,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		for clusterIP == "" && elapsed < timeout {
 			nodes, err := k8sClient.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to list nodes: %w", err)
+				return nil, nil, fmt.Errorf("failed to list nodes: %w", err)
 			}
 
 			for _, node := range nodes.Items {
@@ -592,38 +587,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		}
 	}
 
-	// Enable OCI support for Helm
-	os.Setenv("HELM_EXPERIMENTAL_OCI", "1")
-
-	// Initialize the OCI registry client
-	registryClient, err := registry.NewClient()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to init helm config: %w", err)
-	}
-
-	// Build Helm action.Configuration
-	helmSettings := cli.New()
-	if kubeContext != "" {
-		helmSettings.KubeContext = kubeContext
-	}
-
-	var helmCfg action.Configuration
-	err = helmCfg.Init(
-		helmSettings.RESTClientGetter(),
-		"grpl-system", // default namespace
-		"secret",      // can be configmap
-		func(format string, v ...interface{}) {
-			log.Printf(format, v...)
-		},
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to init helm config: %w", err)
-	}
-
-	// Set the registry client in the Helm configuration
-	helmCfg.RegistryClient = registryClient
-
-	return k8sClient, restConfig, &helmCfg, nil
+	return k8sClient, restConfig, nil
 }
 
 // findClusterByName attempts to get a cluster by listing and matching name
@@ -659,11 +623,11 @@ func findClusterByName(client *civogo.Client, name string) (*civogo.KubernetesCl
 // -----------------------------------------------------------------------------
 
 // helmDeployReleaseWithRetry tries to install/upgrade a Helm chart up to 3 times
-func helmDeployReleaseWithRetry(helmCfg *action.Configuration, kubeClient apiv1.Interface, releaseName, namespace, version, valuesFile string) error {
+func helmDeployReleaseWithRetry(kubeClient apiv1.Interface, releaseName, namespace, version, valuesFile string) error {
 	const maxRetries = 3
 	var err error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err = helmInstallOrUpgrade(helmCfg, kubeClient, releaseName, namespace, version, valuesFile)
+		err = helmInstallOrUpgrade(kubeClient, releaseName, namespace, version, valuesFile)
 		if err == nil {
 			return nil
 		}
@@ -680,7 +644,7 @@ func helmDeployReleaseWithRetry(helmCfg *action.Configuration, kubeClient apiv1.
 	return fmt.Errorf("helm deploy of %s failed after %d attempts: %w", releaseName, maxRetries, err)
 }
 
-func helmInstallOrUpgrade(helmCfg *action.Configuration, kubeClient apiv1.Interface, releaseName, namespace, chartVersion, valuesFile string) error {
+func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, chartVersion, valuesFile string) error {
 
 	utils.StartSpinner(fmt.Sprintf("Installing/upgrading release %s...", releaseName))
 	defer utils.StopSpinner()
@@ -691,9 +655,11 @@ func helmInstallOrUpgrade(helmCfg *action.Configuration, kubeClient apiv1.Interf
 	// Mirrors the Bash variables
 	awsRegistry := "p7h7z5g3"
 
-	// Construct the OCI chart reference
+	// Construct the OCI chart reference without version in URL
 	// Example: "oci://public.ecr.aws/p7h7z5g3/grsf-init"
 	chartRef := fmt.Sprintf("oci://public.ecr.aws/%s/%s", awsRegistry, releaseName)
+
+	utils.InfoMessage(fmt.Sprintf("chartRef: %s", chartRef))
 
 	// Create the Helm settings (used for CLI-based defaults)
 	settings := cli.New()
@@ -734,19 +700,34 @@ func helmInstallOrUpgrade(helmCfg *action.Configuration, kubeClient apiv1.Interf
 			return fmt.Errorf("failed to locate chart from %q: %v", chartRef, err)
 		}
 
+		utils.InfoMessage(fmt.Sprintf("Chartpath %v", chartPath))
+
 		// Load the chart from the local path
 		chartLoaded, err := loader.Load(chartPath)
 		if err != nil {
 			return fmt.Errorf("failed to load chart: %v", err)
 		}
 
-		// Merge values from the file (like '-f /tmp/values-override.yaml')
+		// Merge values from the file (like '/tmp/values-override.yaml')
 		valueOpts := &values.Options{
 			ValueFiles: []string{valuesFile},
 		}
 		vals, err := valueOpts.MergeValues(getter.All(settings))
 		if err != nil {
 			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
+		}
+
+		utils.InfoMessage("Values from file:")
+		for key, value := range vals {
+			switch v := value.(type) {
+			case map[string]interface{}:
+				utils.InfoMessage(fmt.Sprintf("%s:", key))
+				for subKey, subValue := range v {
+					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
+				}
+			default:
+				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
+			}
 		}
 
 		// Run the install
@@ -785,6 +766,18 @@ func helmInstallOrUpgrade(helmCfg *action.Configuration, kubeClient apiv1.Interf
 			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
 		}
 
+		utils.InfoMessage("Values from file:")
+		for key, value := range vals {
+			switch v := value.(type) {
+			case map[string]interface{}:
+				utils.InfoMessage(fmt.Sprintf("%s:", key))
+				for subKey, subValue := range v {
+					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
+				}
+			default:
+				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
+			}
+		}
 		// Run the upgrade
 		rel, err := upgradeClient.Run(releaseName, chartLoaded, vals)
 		if err != nil {
@@ -1288,7 +1281,7 @@ func waitForCondition(client dynamic.Interface, xrdName string, condition string
 	return fmt.Errorf("timeout waiting for condition %s on XRD %s", condition, xrdName)
 }
 
-func createClusterIssuer(kubeClient apiv1.Interface, restConfig *rest.Config) error {
+func createClusterIssuer(kubeClient apiv1.Interface) error {
 	// Apply clusterissuer.yaml if SSL is enabled
 	if sslEnable {
 		utils.InfoMessage("Applying SSL cluster issuer configuration...")
@@ -1332,7 +1325,7 @@ func createClusterIssuer(kubeClient apiv1.Interface, restConfig *rest.Config) er
 }
 
 // waitForGrsfIntegration final checks
-func waitForGrsfIntegration(kubeClient apiv1.Interface, restConfig *rest.Config) error {
+func waitForGrsfIntegration(restConfig *rest.Config) error {
 	// Wait for all Crossplane packages to be healthy
 	utils.InfoMessage("Checking Crossplane package health...")
 
@@ -1411,209 +1404,6 @@ func waitForGrsfIntegration(kubeClient apiv1.Interface, restConfig *rest.Config)
 	}
 
 	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
-}
-
-// installKubeBlocksOnCluster installs the KubeBlocks chart using Helm.
-func installKubeBlocksOnCluster(
-	kubeClient apiv1.Interface,
-	helmCfg *action.Configuration,
-	restConfig *rest.Config,
-) error {
-
-	// Check if KubeBlocks release already exists
-	client := action.NewList(helmCfg)
-	releases, err := client.Run()
-	if err != nil {
-		return fmt.Errorf("failed to list helm releases: %w", err)
-	}
-
-	for _, release := range releases {
-		utils.InfoMessage(fmt.Sprintf("release: %+v", release))
-		if release.Name == "kubeblocks" && release.Namespace == "default" {
-			if release.Info.Status == "failed" {
-				// Delete the failed release
-				uninstall := action.NewUninstall(helmCfg)
-				_, err := uninstall.Run(release.Name)
-				if err != nil {
-					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
-				}
-				utils.InfoMessage("Removed failed KubeBlocks release, will attempt fresh install")
-				break
-			} else {
-				utils.InfoMessage("KubeBlocks release already exists, skipping installation")
-				return nil
-			}
-		}
-	}
-
-	// 1. Create CRDs first
-	utils.InfoMessage("Installing KubeBlocks CRDs...")
-	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.2/kubeblocks_crds.yaml"
-
-	// Use dynamic client to create CRDs
-	dynamicClient, err := dynamic.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	// Fetch and apply CRDs
-	resp, err := http.Get(crdsURL)
-	if err != nil {
-		return fmt.Errorf("failed to download CRDs yaml: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Use k8syaml decoder to properly handle Kubernetes YAML
-	decoder := k8syaml.NewYAMLOrJSONDecoder(resp.Body, 4096)
-	for {
-		var obj unstructured.Unstructured
-		if err := decoder.Decode(&obj); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("failed to decode CRD yaml: %w", err)
-		}
-
-		// Skip empty documents
-		if len(obj.Object) == 0 {
-			utils.InfoMessage("Skipping empty document")
-			continue
-		}
-
-		gvr := schema.GroupVersionResource{
-			Group:    "apiextensions.k8s.io",
-			Version:  "v1",
-			Resource: "customresourcedefinitions",
-		}
-
-		_, err = dynamicClient.Resource(gvr).Create(context.Background(), &obj, v1.CreateOptions{})
-		if err != nil && !errors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
-		}
-
-		utils.InfoMessage(fmt.Sprintf("Created kubeblocks CRDs %s", obj.GetName()))
-	}
-	// Wait a bit for CRDs to be established
-	time.Sleep(10 * time.Second)
-
-	// 2. Create Helm environment settings
-	settings := cli.New()
-
-	// 3. Add the KubeBlocks Helm repository
-	repoEntry := repo.Entry{
-		Name: "kubeblocks",
-		URL:  "https://apecloud.github.io/helm-charts",
-	}
-
-	chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
-	if err != nil {
-		return fmt.Errorf("failed to create chart repository object: %w", err)
-	}
-
-	// Add repo to repositories.yaml
-	repoFile := settings.RepositoryConfig
-	b, err := os.ReadFile(repoFile)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read repository file: %w", err)
-	}
-
-	var f repo.File
-	if err := yaml.Unmarshal(b, &f); err != nil {
-		return fmt.Errorf("failed to unmarshal repository file: %w", err)
-	}
-
-	// Add new repo or update existing
-	f.Add(&repoEntry)
-
-	if err := f.WriteFile(repoFile, 0644); err != nil {
-		return fmt.Errorf("failed to write repository file: %w", err)
-	}
-
-	_, err = chartRepo.DownloadIndexFile()
-	if err != nil {
-		return fmt.Errorf("failed to download repository index: %w", err)
-	}
-
-	utils.InfoMessage("Added and updated kubeblocks helm repository")
-
-	// 4. Create a Helm install client
-	installClient := action.NewInstall(helmCfg)
-
-	installClient.ReleaseName = "kubeblocks"
-	installClient.Namespace = "default"
-	installClient.Timeout = 1200 * time.Second // 20 minute timeout
-	installClient.Wait = true
-
-	// 5. Locate and load the chart
-	chartPath, err := installClient.ChartPathOptions.LocateChart("kubeblocks/kubeblocks", settings)
-	if err != nil {
-		return fmt.Errorf("failed to locate KubeBlocks chart: %w", err)
-	}
-
-	chartRequested, err := loader.Load(chartPath)
-	if err != nil {
-		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
-	}
-
-	utils.InfoMessage(fmt.Sprintf("release name: %s", installClient.ReleaseName))
-	utils.InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
-
-	// Optional: override chart values if needed
-	values := map[string]interface{}{
-		"global": map[string]interface{}{
-			"namespace": "kb-system", // Explicitly set namespace in values
-		},
-	}
-
-	if _, err := installClient.Run(chartRequested, values); err != nil {
-		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
-	}
-
-	utils.SuccessMessage("KubeBlocks installed successfully in namespace default!")
-	return nil
-}
-
-// waitForKubeblocksCRDs waits for all required KubeBlocks CRDs to be established
-func waitForKubeblocksCRDs(dynamicClient dynamic.Interface) error {
-	requiredCRDs := []string{
-		"storageproviders.storage.kubeblocks.io",
-		"backuppolicies.dataprotection.kubeblocks.io",
-		"backuprepos.dataprotection.kubeblocks.io",
-	}
-
-	gvr := schema.GroupVersionResource{
-		Group:    "apiextensions.k8s.io",
-		Version:  "v1",
-		Resource: "customresourcedefinitions",
-	}
-
-	for _, crdName := range requiredCRDs {
-		crd, err := dynamicClient.Resource(gvr).Get(context.Background(), crdName, v1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("CRD %s not found: %w", crdName, err)
-		}
-
-		established := false
-		conditions, found, err := unstructured.NestedSlice(crd.Object, "status", "conditions")
-		if err != nil || !found {
-			return fmt.Errorf("could not get conditions for CRD %s", crdName)
-		}
-
-		for _, condition := range conditions {
-			c := condition.(map[string]interface{})
-			if c["type"] == "Established" && c["status"] == "True" {
-				established = true
-				utils.InfoMessage(fmt.Sprintf("CRD %s established", crdName))
-				break
-			}
-		}
-
-		if !established {
-			return fmt.Errorf("CRD %s not yet established", crdName)
-		}
-	}
-
-	return nil
 }
 
 // // -----------------------------------------------------------------------------

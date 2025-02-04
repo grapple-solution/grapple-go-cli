@@ -1,0 +1,363 @@
+package example
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/go-git/go-git/v5" // Go-git package
+	"github.com/grapple-solution/grapple_cli/utils"
+	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1" // Import for appsv1
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+var (
+	grasTemplate string
+	dbType       string
+	kubeContext  string
+	wait         bool
+)
+
+// DeployCmd represents the deploy command
+var DeployCmd = &cobra.Command{
+	Use:   "deploy",
+	Short: "Deploy Grapple example resources",
+	Long: `Deploy Grapple example resources from templates.
+Available templates:
+- db-file
+- db-cache-redis  
+- db-mysql-model-based
+- db-mysql-discovery-based
+
+For database resources, you can choose between internal or external databases.`,
+	RunE: runDeploy,
+}
+
+func init() {
+	DeployCmd.Flags().StringVar(&grasTemplate, "gras-template", "", "Grapple Application Set template to use")
+	DeployCmd.Flags().StringVar(&dbType, "db-type", "", "Database type (internal/external)")
+	DeployCmd.Flags().StringVar(&kubeContext, "kube-context", "", "Kubernetes context")
+	DeployCmd.Flags().BoolVar(&wait, "wait", false, "Wait for deployment to be ready")
+}
+
+func runDeploy(cmd *cobra.Command, args []string) error {
+	// Setup logging
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_example_deploy.log")
+	defer logFile.Close()
+
+	logOnCliAndFileStart()
+
+	// Check cluster accessibility
+	restConfig, err := clientcmd.BuildConfigFromFlags("", filepath.Join(os.Getenv("HOME"), ".kube", "config"))
+	if err != nil {
+		return fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Clone examples repo
+	repoPath := "/tmp/grpl-gras-examples"
+	if err := cloneExamplesRepo(repoPath); err != nil {
+		return err
+	}
+	// If template not specified, prompt user to select one
+	if grasTemplate == "" {
+		result, err := utils.PromptSelect("Select template type", GrasTemplate)
+		if err != nil {
+			return fmt.Errorf("template selection failed: %w", err)
+		}
+		grasTemplate = result
+	}
+
+	switch grasTemplate {
+	case DB_MYSQL_MODEL_BASED, DB_MYSQL_DISCOVERY_BASED:
+		if dbType == "" {
+			result, err := utils.PromptSelect("Select database type", GrasDBType)
+			if err != nil {
+				return fmt.Errorf("database type selection failed: %w", err)
+			}
+			dbType = result
+		}
+	}
+
+	// Handle different template types
+	switch grasTemplate {
+	case DB_FILE:
+		return deployDBFile(clientset, restConfig, repoPath)
+	case DB_CACHE_REDIS:
+		return deployDBCacheRedis(clientset, restConfig, repoPath, logOnCliAndFileStart, logOnFileStart)
+	case DB_MYSQL_MODEL_BASED:
+		return deployDBMySQL(clientset, restConfig, repoPath, "model", dbType, logOnCliAndFileStart, logOnFileStart)
+	case DB_MYSQL_DISCOVERY_BASED:
+		return deployDBMySQL(clientset, restConfig, repoPath, "discovery", dbType, logOnCliAndFileStart, logOnFileStart)
+	default:
+		return fmt.Errorf("invalid template type: %s", grasTemplate)
+	}
+}
+
+func cloneExamplesRepo(path string) error {
+	// Remove existing repo directory if it exists
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("failed to clean existing repo: %w", err)
+	}
+
+	utils.InfoMessage("Cloning examples repository...")
+
+	// Clone the repository using go-git
+	_, err := git.PlainClone(path, false, &git.CloneOptions{
+		URL:      "https://github.com/grapple-solution/grpl-gras-examples.git",
+		Progress: os.Stdout,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clone repository: %w", err)
+	}
+
+	return nil
+}
+
+func deployDBFile(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string) error {
+	manifestPath := filepath.Join(repoPath, "db-file/resource.yaml")
+	return applyManifest(client, restConfig, manifestPath)
+}
+
+func deployDBCacheRedis(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string, logOnCliAndFileStart, logOnFileStart func()) error {
+	manifestPath := filepath.Join(repoPath, "db-cache-redis/resource.yaml")
+	// check and install kubeblocks first
+	utils.InfoMessage("Checking and installing kubeblocks...")
+	logOnFileStart()
+	if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
+		logOnCliAndFileStart()
+		return err
+	}
+	logOnCliAndFileStart()
+	utils.SuccessMessage("Checked kubeblocks installation")
+	return applyManifest(client, restConfig, manifestPath)
+}
+
+func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string, dbStyle string, dbType string, logOnCliAndFileStart, logOnFileStart func()) error {
+	var manifestPath string
+	if dbType == "internal" {
+		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/internal_resource.yaml", dbStyle))
+		utils.InfoMessage("Checking and installing kubeblocks...")
+		logOnFileStart()
+		if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
+			logOnCliAndFileStart()
+			return err
+		}
+		logOnCliAndFileStart()
+		utils.SuccessMessage("Checked kubeblocks installation")
+		return applyManifest(client, restConfig, manifestPath)
+
+	} else {
+		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/external_resource.yaml", dbStyle))
+		if err := applyManifest(client, restConfig, manifestPath); err != nil {
+			return err
+		}
+
+		utils.InfoMessage("Creating external db secret...")
+		logOnFileStart()
+		if err := createExternalDBSecret(client); err != nil {
+			logOnCliAndFileStart()
+			return err
+		}
+		logOnCliAndFileStart()
+		utils.SuccessMessage("Created external db secret")
+	}
+
+	return nil
+}
+
+func createExternalDBSecret(client *kubernetes.Clientset) error {
+	// Extract credentials from existing secret
+	existingSecret, err := client.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grpl-e-d-external-sec", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get existing secret: %w", err)
+	}
+	// Create new secret
+	newSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-conn-credential", GrasName),
+			Namespace: DeploymentNamespace,
+		},
+		Data: map[string][]byte{
+			"host":     []byte("aurora-mysql-test.cpfyybdyajmx.eu-central-1.rds.amazonaws.com"),
+			"port":     []byte("3306"),
+			"username": existingSecret.Data["username"],
+			"password": existingSecret.Data["password"],
+		},
+	}
+
+	_, err = client.CoreV1().Secrets(DeploymentNamespace).Create(context.TODO(), newSecret, metav1.CreateOptions{})
+	if errors.IsAlreadyExists(err) {
+		_, err = client.CoreV1().Secrets(DeploymentNamespace).Update(context.TODO(), newSecret, metav1.UpdateOptions{})
+	}
+	return err
+}
+func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manifestPath string) error {
+	// Read the manifest file
+	yamlFile, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to read manifest file: %w", err)
+	}
+
+	// Create dynamic client for applying manifests
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	// Split the YAML into individual documents
+	decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(yamlFile), 4096)
+	for {
+		var obj unstructured.Unstructured
+		if err := decoder.Decode(&obj); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to decode manifest: %w", err)
+		}
+
+		// Skip empty documents
+		if len(obj.Object) == 0 {
+			utils.InfoMessage("Skipping empty document")
+			continue
+		}
+
+		// Get namespace from manifest and create if needed
+		namespace := obj.GetNamespace()
+		if namespace != "" {
+			_, err := client.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+			if err != nil {
+				if errors.IsNotFound(err) {
+					utils.InfoMessage(fmt.Sprintf("Creating namespace '%s'", namespace))
+					ns := &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: namespace,
+						},
+					}
+					_, err = client.CoreV1().Namespaces().Create(context.TODO(), ns, metav1.CreateOptions{})
+					if err != nil {
+						return fmt.Errorf("failed to create namespace: %w", err)
+					}
+				} else {
+					return fmt.Errorf("failed to check namespace: %w", err)
+				}
+			}
+		}
+		DeploymentNamespace = namespace
+		GrasName = obj.GetName()
+
+		// Get GVR for the resource
+		gvr := schema.GroupVersionResource{
+			Group:    obj.GetObjectKind().GroupVersionKind().Group,
+			Version:  obj.GetObjectKind().GroupVersionKind().Version,
+			Resource: strings.ToLower(obj.GetKind()) + "s",
+		}
+
+		// Apply the resource
+		utils.InfoMessage(fmt.Sprintf("Applying %s '%s' in namespace '%s'",
+			obj.GetKind(),
+			obj.GetName(),
+			namespace))
+
+		var dr dynamic.ResourceInterface
+		if namespace != "" {
+			dr = dynamicClient.Resource(gvr).Namespace(namespace)
+		} else {
+			dr = dynamicClient.Resource(gvr)
+		}
+
+		// Try to get existing resource first
+		existing, err := dr.Get(context.TODO(), obj.GetName(), metav1.GetOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to check existing resource: %w", err)
+		}
+
+		if errors.IsNotFound(err) {
+			// Resource doesn't exist, create it
+			_, err = dr.Create(context.TODO(), &obj, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to create resource: %w", err)
+			}
+			utils.SuccessMessage(fmt.Sprintf("Created %s '%s' in namespace '%s'", obj.GetKind(), obj.GetName(), namespace))
+		} else {
+			// Resource exists, update it
+			// Set the resourceVersion to ensure we're updating the latest version
+			obj.SetResourceVersion(existing.GetResourceVersion())
+			_, err = dr.Update(context.TODO(), &obj, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update resource: %w", err)
+			}
+			utils.SuccessMessage(fmt.Sprintf("Updated %s '%s' in namespace '%s'", obj.GetKind(), obj.GetName(), namespace))
+		}
+
+		// Wait a bit for the resource to be processed
+		time.Sleep(2 * time.Second)
+
+		// Verify the resource exists
+		_, err = dr.Get(context.TODO(), obj.GetName(), metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to verify resource creation: %w", err)
+		}
+	}
+
+	// Check if wait flag is set to true
+	if wait {
+		utils.InfoMessage("Waiting for grapi deployment to be ready...")
+		deploymentName := fmt.Sprintf("%s-%s-grapi", DeploymentNamespace, GrasName)
+		waitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		utils.SuccessMessage("grapi deployment is ready")
+
+		utils.InfoMessage("Waiting for gruim deployment to be ready...")
+		deploymentName = fmt.Sprintf("%s-%s-gruim", DeploymentNamespace, GrasName)
+		waitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		utils.SuccessMessage("gruim deployment is ready")
+	}
+
+	return nil
+}
+
+func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
+	// Watch deployment status
+	watcher, err := client.AppsV1().Deployments(DeploymentNamespace).Watch(context.TODO(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", deploymentName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to watch deployment: %w", err)
+	}
+	defer watcher.Stop()
+
+	// Wait for deployment to be ready
+	for event := range watcher.ResultChan() {
+		deployment, ok := event.Object.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+
+		// Check if deployment is ready
+		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
+			deployment.Status.UpdatedReplicas == deployment.Status.Replicas {
+			utils.SuccessMessage("Deployment is ready")
+			break
+		}
+	}
+	return nil
+}
