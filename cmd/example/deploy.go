@@ -337,7 +337,7 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 
 func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
 	// Watch deployment status
-	watcher, err := client.AppsV1().Deployments(DeploymentNamespace).Watch(context.TODO(), metav1.ListOptions{
+	watcher, err := client.AppsV1().Deployments(namespace).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", deploymentName),
 	})
 	if err != nil {
