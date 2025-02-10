@@ -36,6 +36,7 @@ var (
 	sslIssuer      string
 	completeDomain string
 	grappleLicense string
+	reconnect      bool
 )
 
 // Wait for the cluster to be ready

@@ -28,6 +28,7 @@ This will update your kubeconfig file to allow kubectl access to the cluster.`,
 func init() {
 	ConnectCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster to connect to")
 	ConnectCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region where the cluster is located")
+	ConnectCmd.Flags().BoolVar(&reconnect, "reconnect", true, "Force reconnection even if already connected")
 }
 
 // Function to handle the "connect" command logic
@@ -51,6 +52,27 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
 		utils.InfoMessage("Already running inside a Kubernetes cluster")
 		return nil
+	}
+
+	// Check existing kubeconfig if not forcing reconnect
+	if !reconnect {
+		home := os.Getenv("HOME")
+		if home != "" {
+			kubeConfigPath := filepath.Join(home, ".kube", "config")
+			if _, err := os.Stat(kubeConfigPath); err == nil {
+				config, err := clientcmd.LoadFromFile(kubeConfigPath)
+				if err == nil {
+					currentContext := config.CurrentContext
+					if currentContext != "" && config.Contexts[currentContext] != nil {
+						// Check if current context is a Civo cluster
+						if config.Contexts[currentContext].Cluster != "" {
+							utils.InfoMessage("Already connected to a Kubernetes cluster")
+							return nil
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if clusterName == "" {

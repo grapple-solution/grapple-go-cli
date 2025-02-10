@@ -316,16 +316,16 @@ func prepareValuesFile() error {
 			"dev":                   "false",
 			"ssl":                   fmt.Sprintf("%v", sslEnable),
 			"sslissuer":             sslIssuer,
-			"CLUSTER_NAME":          clusterName,
-			"GRAPPLE_DNS":           completeDomain,
-			"GRAPPLE_VERSION":       grappleVersion,
-			"GRAPPLE_LICENSE":       grappleLicense,
-			"PROVIDER_CLUSTER_TYPE": "CIVO",
+			"cluster-name":          clusterName,
+			"grapple-dns":           completeDomain,
+			"grapple-version":       grappleVersion,
+			"grapple-license":       grappleLicense,
+			"provider-cluster-type": "CIVO",
 
 			// Civo specific fields
-			"CIVO_CLUSTER_ID": civoClusterID,
-			"CIVO_REGION":     civoRegion,
-			"CIVO_MASTER_IP":  clusterIP,
+			"civo-cluster-id": civoClusterID,
+			"civo-region":     civoRegion,
+			"civo-master-ip":  clusterIP,
 		},
 	}
 
@@ -368,7 +368,6 @@ func prepareValuesFile() error {
 // 1) Create a civo client from flags
 // 2) Retrieve the cluster's kubeconfig
 // 3) Build a K8s client-go client
-// 4) Build a Helm action.Configuration
 // -----------------------------------------------------------------------------
 func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *rest.Config, error) {
 	// Check if running inside CIVO cluster
@@ -1358,11 +1357,6 @@ func waitForGrsfIntegration(restConfig *rest.Config) error {
 		}
 
 		packages := &allPackages
-		if err != nil {
-			utils.InfoMessage("Waiting for Crossplane package CRDs to be available...")
-			time.Sleep(10 * time.Second)
-			continue
-		}
 
 		if len(packages.Items) == 0 {
 			utils.InfoMessage("No Crossplane packages found yet...")

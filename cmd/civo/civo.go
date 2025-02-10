@@ -16,4 +16,5 @@ func init() {
 	CivoCmd.AddCommand(CreateCmd)
 	CivoCmd.AddCommand(InstallCmd)
 	CivoCmd.AddCommand(ConnectCmd)
+	CivoCmd.AddCommand(UninstallCmd)
 }
