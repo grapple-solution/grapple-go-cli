@@ -32,7 +32,7 @@ This will completely remove all traces of Grapple installation including:
 }
 
 func init() {
-	UninstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
+	UninstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, uninstalls grapple from the currently connected Civo cluster. If false, prompts for cluster name and civo region and removes grapple from the specified cluster. Default value of auto-confirm is true")
 	UninstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	UninstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
 }
@@ -52,15 +52,11 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
-	if !autoConfirm {
-		if confirmed, err := utils.PromptConfirm("This will remove all Grapple components and data. Are you sure?"); err != nil || !confirmed {
-			return fmt.Errorf("uninstall cancelled by user")
-		}
-	}
-
 	// Connect to cluster
 	connectToCivoCluster := func() error {
-		reconnect = false
+		if autoConfirm {
+			reconnect = false
+		}
 		err := connectToCluster(cmd, args)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))

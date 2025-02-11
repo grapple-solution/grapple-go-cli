@@ -1,15 +1,21 @@
 package civo
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/civo/civogo"
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // RemoveCmd represents the remove command
@@ -24,9 +30,48 @@ This ensures a complete cleanup of all cluster-related resources.`,
 }
 
 func init() {
-	RemoveCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
+	RemoveCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, deletes the currently connected Civo cluster. If false, prompts for cluster name and civo region and deletes the specified cluster. Default value of auto-confirm is true")
 	RemoveCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	RemoveCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
+}
+
+func getClusterDetailsFromConfig() bool {
+	// Get kubernetes config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		// Try loading from kubeconfig file if not in cluster
+		home := os.Getenv("HOME")
+		kubeconfig := filepath.Join(home, ".kube", "config")
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			utils.InfoMessage("Could not load kubernetes config, proceeding with provided values")
+			return false
+		}
+	}
+
+	// Create kubernetes clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return false
+	}
+	// Try to get grsf-config secret
+	secret, err := clientset.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	// Check provider type
+	if string(secret.Data[secKeyProviderClusterType]) == providerClusterTypeCivo {
+		// Extract cluster name and region if not provided via flags
+		if clusterName == "" {
+			clusterName = string(secret.Data[secKeyClusterName])
+		}
+		if civoRegion == "" {
+			civoRegion = string(secret.Data[secKeyCivoRegion])
+		}
+		utils.InfoMessage(fmt.Sprintf("Using values from grsf-config: cluster=%s, region=%s", clusterName, civoRegion))
+		return true
+	}
+	return false
 }
 
 func runRemove(cmd *cobra.Command, args []string) error {
@@ -45,18 +90,39 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
-	if !autoConfirm {
-		if confirmed, err := utils.PromptConfirm("This will permanently delete the cluster. Are you sure?"); err != nil || !confirmed {
-			return fmt.Errorf("remove cancelled by user")
-		}
-	}
-
 	civoAPIKey = os.Getenv("CIVO_API_TOKEN")
 	if civoAPIKey == "" {
 		utils.ErrorMessage("Civo API key is required, set CIVO_API_TOKEN in your environment variables")
 		return errors.New("civo API key is required, set CIVO_API_TOKEN in your environment variables")
 	}
 
+	if autoConfirm {
+		reconnect = false
+		err = connectToCluster(cmd, args)
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+
+		if civoRegion == "" && clusterName == "" && !getClusterDetailsFromConfig() {
+			utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
+		}
+	}
+
+	if civoRegion == "" {
+		regions := []string{
+			"nyc1",
+			"phx1",
+			"fra1",
+			"lon1",
+		}
+		result, err := utils.PromptSelect("Select region", regions)
+		if err != nil {
+			utils.ErrorMessage("Region selection is required")
+			return errors.New("region selection is required")
+		}
+		civoRegion = result
+	}
 	// Initialize Civo client
 	apiKey := strings.TrimSpace(civoAPIKey)
 	client, err := civogo.NewClient(apiKey, civoRegion)
@@ -70,6 +136,23 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		utils.ErrorMessage(fmt.Sprintf("Failed to list clusters: %v", err))
 		return err
+	}
+
+	if clusterName == "" {
+		var clusterNames []string
+		for _, cluster := range clusters.Items {
+			clusterNames = append(clusterNames, cluster.Name)
+		}
+		if len(clusterNames) == 0 {
+			utils.ErrorMessage("No clusters found in region " + civoRegion)
+			return errors.New("no clusters found in region " + civoRegion)
+		}
+		result, err := utils.PromptSelect("Select cluster to remove", clusterNames)
+		if err != nil {
+			utils.ErrorMessage("Cluster selection is required")
+			return errors.New("cluster selection is required")
+		}
+		clusterName = result
 	}
 
 	var targetCluster *civogo.KubernetesCluster
