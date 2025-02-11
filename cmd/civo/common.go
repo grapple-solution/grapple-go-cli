@@ -26,7 +26,6 @@ var (
 
 	// Installation specific flags
 	grappleVersion string
-	kubeContext    string
 	civoClusterID  string
 	clusterIP      string
 	grappleDNS     string
@@ -37,6 +36,29 @@ var (
 	completeDomain string
 	grappleLicense string
 	reconnect      bool
+)
+
+const (
+	secKeyEmail               = "email"
+	secKeyOrganization        = "organization"
+	secKeyClusterdomain       = "clusterdomain"
+	secKeyGrapiversion        = "grapiversion"
+	secKeyGruimversion        = "gruimversion"
+	secKeyDev                 = "dev"
+	secKeySsl                 = "ssl"
+	secKeySslissuer           = "sslissuer"
+	secKeyClusterName         = "cluster-name"
+	secKeyGrapleDNS           = "grapple-dns"
+	secKeyGrapleVersion       = "grapple-version"
+	secKeyGrapleLicense       = "grapple-license"
+	secKeyProviderClusterType = "provider-cluster-type"
+	secKeyCivoClusterID       = "civo-cluster-id"
+	secKeyCivoRegion          = "civo-region"
+	secKeyCivoMasterIP        = "civo-master-ip"
+)
+
+const (
+	providerClusterTypeCivo = "CIVO"
 )
 
 // Wait for the cluster to be ready

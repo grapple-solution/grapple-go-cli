@@ -56,32 +56,13 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 	// Check existing kubeconfig if not forcing reconnect
 	if !reconnect {
-		home := os.Getenv("HOME")
-		if home != "" {
-			kubeConfigPath := filepath.Join(home, ".kube", "config")
-			if _, err := os.Stat(kubeConfigPath); err == nil {
-				config, err := clientcmd.LoadFromFile(kubeConfigPath)
-				if err == nil {
-					currentContext := config.CurrentContext
-					if currentContext != "" && config.Contexts[currentContext] != nil {
-						// Check if current context is a Civo cluster
-						if config.Contexts[currentContext].Cluster != "" {
-							utils.InfoMessage("Already connected to a Kubernetes cluster")
-							return nil
-						}
-					}
-				}
-			}
-		}
-	}
 
-	if clusterName == "" {
-		result, err := utils.PromptInput("Enter cluster name")
-		if err != nil {
-			utils.ErrorMessage("Cluster name is required")
-			return errors.New("cluster name is required")
+		connected, contextName := hasExistingConnection()
+		if connected {
+			utils.InfoMessage(fmt.Sprintf("Already connected to a civo kubernetes cluster, %s", contextName))
+			return nil
 		}
-		clusterName = result
+		utils.InfoMessage("No active cluster connection found, proceeding to create a new connection")
 	}
 
 	if civoRegion == "" {
@@ -119,6 +100,23 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if clusterName == "" {
+		var clusterNames []string
+		for _, cluster := range clusters.Items {
+			clusterNames = append(clusterNames, cluster.Name)
+		}
+		if len(clusterNames) == 0 {
+			utils.ErrorMessage("No clusters found in region " + civoRegion)
+			return errors.New("no clusters found in region " + civoRegion)
+		}
+		result, err := utils.PromptSelect("Select cluster to remove", clusterNames)
+		if err != nil {
+			utils.ErrorMessage("Cluster selection is required")
+			return errors.New("cluster selection is required")
+		}
+		clusterName = result
+	}
+
 	var targetCluster *civogo.KubernetesCluster
 	for _, c := range clusters.Items {
 		if c.Name == clusterName {
@@ -142,6 +140,52 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 	utils.SuccessMessage(fmt.Sprintf("Successfully connected to cluster '%s'", clusterName))
 	return nil
+}
+
+// hasExistingConnection checks if there is an existing valid kubernetes connection
+func hasExistingConnection() (bool, string) {
+	utils.InfoMessage("Checking for existing kubernetes connection")
+	home := os.Getenv("HOME")
+	contextName := ""
+	if home == "" {
+		return false, contextName
+	}
+
+	kubeConfigPath := filepath.Join(home, ".kube", "config")
+	if _, err := os.Stat(kubeConfigPath); err != nil {
+		return false, contextName
+	}
+
+	config, err := clientcmd.LoadFromFile(kubeConfigPath)
+	if err != nil {
+		return false, contextName
+	}
+
+	contextName = config.CurrentContext
+	if contextName == "" || config.Contexts[contextName] == nil {
+		return false, contextName
+	}
+
+	if config.Contexts[contextName].Cluster == "" {
+		return false, contextName
+	}
+
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	if err != nil {
+		return false, contextName
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return false, contextName
+	}
+
+	_, err = clientset.CoreV1().Namespaces().List(context.TODO(), v1.ListOptions{})
+	if err != nil {
+		return false, contextName
+	}
+
+	return true, contextName
 }
 
 // Configure kubectl for the created cluster
