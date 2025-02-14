@@ -19,10 +19,8 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-
+	"helm.sh/helm/v3/pkg/registry"
 	// Kubernetes client libraries
-
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // DeployCmd represents the deploy command.
@@ -145,6 +143,76 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		// (You can update your YAML template with the DB file path here.)
 	}
 
+	// Handle database schema and init containers
+	if GRASTemplate == DB_MYSQL_MODEL_BASED || GRASTemplate == DB_MYSQL_DISCOVERY_BASED {
+		if DatabaseSchema == "" {
+			prompt := promptui.Prompt{
+				Label: "Enter database schema name",
+			}
+			schema, err := prompt.Run()
+			if err != nil {
+				return err
+			}
+			DatabaseSchema = schema
+		}
+
+		// Handle init containers based on source data
+		data, err := os.ReadFile(templateFileDest)
+		if err != nil {
+			return err
+		}
+		var tmpl map[string]interface{}
+		if err := yaml.Unmarshal(data, &tmpl); err != nil {
+			return err
+		}
+		grapi, ok := tmpl["grapi"].(map[interface{}]interface{})
+		if !ok {
+			grapi = make(map[interface{}]interface{})
+			tmpl["grapi"] = grapi
+		}
+
+		// Prompt for source data if not provided
+		if SourceData == "" {
+			prompt := promptui.Prompt{
+				Label:     "Enter SOURCE_DATA",
+				Default:   "",
+				AllowEdit: true,
+			}
+			sourceData, err := prompt.Run()
+			if err != nil {
+				return err
+			}
+			SourceData = sourceData
+		}
+
+		var initScript string
+		if SourceData == "" {
+			// Basic init container that just creates database
+			initScript = fmt.Sprintf("sleep 5; while ! mysql -h $(host) -P $(port) -u $(username) -p$(password) -e \"show databases;\" 2>/dev/null; do echo -n .; sleep 2; done; mysql -h $(host) -P $(port) -u $(username) -p$(password) -e \"CREATE DATABASE IF NOT EXISTS %s;\"", DatabaseSchema)
+		} else {
+			// Init container that loads data from source URL
+			initScript = fmt.Sprintf("sleep 5; while ! mysql -h $(host) -P $(port) -u $(username) -p$(password) -e \"show databases;\" 2>/dev/null; do echo -n .; sleep 2; done; if mysql -h $(host) -P $(port) -u $(username) -p$(password) -e \"USE %s; SET @tablename := (select table_name from information_schema.tables where table_type = 'BASE TABLE' and table_schema = '%s' limit 1); set @qry1:= concat('select * from ',@tablename,' limit 1'); prepare stmt from @qry1 ; execute stmt ;\" ; then echo \"database already exists...\"; else curl -o /tmp/%s.sql %s; mysql -h $(host) -P $(port) -u $(username) -p$(password) < /tmp/%s.sql; fi;", DatabaseSchema, DatabaseSchema, DatabaseSchema, SourceData, DatabaseSchema)
+		}
+
+		grapi["initContainers"] = []interface{}{
+			map[string]interface{}{
+				"spec": map[string]interface{}{
+					"image":   "mysql",
+					"command": initScript,
+				},
+			},
+		}
+
+		tmpl["grapi"] = grapi
+		newData, err := yaml.Marshal(tmpl)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(templateFileDest, newData, 0644); err != nil {
+			return err
+		}
+	}
+
 	// 7. Substitute environment variables in the template (using os.ExpandEnv).
 	if err := substituteEnvVarsInTemplate(templateFileDest); err != nil {
 		return err
@@ -159,33 +227,6 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	_ = os.Remove(templateFileDest)
 
 	fmt.Println("Resource deployed successfully!")
-	return nil
-}
-
-// ensureKubeContext loads the kubeconfig and ensures that the desired context is available.
-func ensureKubeContext() error {
-	// Only load kubeconfig if not running in–cluster.
-	if os.Getenv("KUBERNETES_SERVICE_HOST") == "" {
-		kubeconfigPath := clientcmd.RecommendedHomeFile
-		configData, err := os.ReadFile(kubeconfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to read kubeconfig file: %v", err)
-		}
-		config, err := clientcmd.Load(configData)
-		if err != nil {
-			return fmt.Errorf("failed to load kubeconfig: %v", err)
-		}
-		// If no context is provided on the command line, use the current context.
-		if KubeContext == "" {
-			KubeContext = config.CurrentContext
-		}
-		if _, ok := config.Contexts[KubeContext]; !ok {
-			return fmt.Errorf("context %q not found in kubeconfig", KubeContext)
-		}
-		// Note: Rather than "setting" the context via a CLI command,
-		// later calls to clientcmd.NewNonInteractiveDeferredLoadingClientConfig
-		// will use KubeContext.
-	}
 	return nil
 }
 
@@ -399,20 +440,103 @@ func transformRelationInputToYAML(relations string, tmplFile string) error {
 
 func takeModelInputFromCLI(tmplFile string) error {
 	for {
-		modelName, err := utils.PromptInput("Enter model name (or leave empty to finish)")
+		// Prompt for model name
+		modelName, err := utils.PromptInput("Enter model name (or leave empty to finish)", utils.DefaultValue, utils.EmptyValueRegex)
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(modelName) == "" {
-			break
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			return nil // Exit cleanly if empty model name
 		}
 
+		// Prompt for base class
 		baseClass, err := utils.PromptSelect("Select model base class", []string{"Entity", "Model"})
 		if err != nil {
 			return err
 		}
 
-		// Update YAML template by reading, modifying and writing back.
+		// Prompt for properties
+		properties := make(map[string]interface{})
+		idSelected := false
+		for {
+			promptMsg := ""
+			if len(properties) == 0 {
+				promptMsg = "Enter property name (at least one property is required)"
+			} else {
+				promptMsg = "Enter property name (or leave empty to finish)"
+			}
+
+			propName, err := utils.PromptInput(promptMsg, utils.DefaultValue, utils.EmptyValueRegex)
+			if err != nil {
+				return err
+			}
+			propName = strings.TrimSpace(propName)
+			if propName == "" && len(properties) == 0 {
+				utils.InfoMessage("At least one property is required")
+				continue
+			}
+			if propName == "" {
+				break // Exit property loop if empty property name and we have properties
+			}
+
+			propType, err := utils.PromptSelect("Select property type", []string{
+				"string", "integer", "boolean", "float", "array", "object", "date", "buffer", "geopoint", "any",
+			})
+			if err != nil {
+				return err
+			}
+
+			propSpec := map[string]interface{}{
+				"type": propType,
+			}
+
+			// Handle ID field logic
+			if !idSelected {
+				isID, err := utils.PromptConfirm(fmt.Sprintf("Is %s the ID property?", propName))
+				if err != nil {
+					return err
+				}
+
+				if isID {
+					isGenerated, err := utils.PromptConfirm(fmt.Sprintf("Is %s generated automatically?", propName))
+					if err != nil {
+						return err
+					}
+
+					propSpec["id"] = true
+					propSpec["required"] = true
+					if isGenerated {
+						propSpec["generated"] = true
+					}
+					idSelected = true
+					properties[propName] = propSpec
+					continue
+				}
+			}
+
+			// Handle required/default value logic for non-ID fields
+			required, err := utils.PromptConfirm("Is this property required?")
+			if err != nil {
+				return err
+			}
+
+			if required {
+				propSpec["required"] = true
+			} else {
+				defaultValue, err := utils.PromptInput("Default value [leave blank for none]", utils.DefaultValue, utils.EmptyValueRegex)
+				if err != nil {
+					return err
+				}
+				if defaultValue != "" {
+					propSpec["defaultFn"] = defaultValue
+				}
+			}
+
+			properties[propName] = propSpec
+		}
+
+		// Update YAML template
 		data, err := os.ReadFile(tmplFile)
 		if err != nil {
 			return err
@@ -430,15 +554,17 @@ func takeModelInputFromCLI(tmplFile string) error {
 		if ml, ok := grapi["models"].([]interface{}); ok {
 			modelsList = ml
 		}
+
 		modelEntry := map[string]interface{}{
 			"name": modelName,
 			"spec": map[string]interface{}{
-				"base": baseClass,
-				// Additional properties can be added via further prompts.
+				"base":       baseClass,
+				"properties": properties,
 			},
 		}
 		modelsList = append(modelsList, modelEntry)
 		grapi["models"] = modelsList
+
 		newData, err := yaml.Marshal(tmpl)
 		if err != nil {
 			return err
@@ -446,32 +572,26 @@ func takeModelInputFromCLI(tmplFile string) error {
 		if err := os.WriteFile(tmplFile, newData, 0644); err != nil {
 			return err
 		}
-
-		addAnother, err := utils.PromptConfirm("Add another model?")
-		if err != nil || !addAnother {
-			break
-		}
 	}
-	return nil
 }
 
 func takeDatasourceInputFromCLI(dsType string, tmplFile string) error {
-	dsName, err := utils.PromptInput("Enter datasource name")
+	dsName, err := utils.PromptInput("Enter datasource name", utils.DefaultValue, utils.EmptyValueRegex)
 	if err != nil {
 		return err
 	}
 
-	host, err := utils.PromptInput("Enter host")
+	host, err := utils.PromptInput("Enter host", utils.DefaultValue, utils.EmptyValueRegex)
 	if err != nil {
 		return err
 	}
 
-	port, err := utils.PromptInput("Enter port")
+	port, err := utils.PromptInput("Enter port", utils.DefaultValue, utils.EmptyValueRegex)
 	if err != nil {
 		return err
 	}
 
-	user, err := utils.PromptInput("Enter user")
+	user, err := utils.PromptInput("Enter user", utils.DefaultValue, utils.EmptyValueRegex)
 	if err != nil {
 		return err
 	}
@@ -481,7 +601,7 @@ func takeDatasourceInputFromCLI(dsType string, tmplFile string) error {
 		return err
 	}
 
-	url, err := utils.PromptInput("Enter datasource URL (optional)")
+	url, err := utils.PromptInput("Enter datasource URL (optional)", utils.DefaultValue, utils.EmptyValueRegex)
 	if err != nil {
 		return err
 	}
@@ -717,23 +837,40 @@ func deployTemplate(tmplFile, releaseName, namespace string) error {
 	// Set up Helm settings.
 	settings := cli.New()
 	settings.SetNamespace(namespace)
+
 	actionConfig := new(action.Configuration)
 	if err := actionConfig.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf); err != nil {
 		return fmt.Errorf("failed to initialize helm action configuration: %v", err)
 	}
-	// OCI chart reference (example)
+
+	// Create registry client
+	registryClient, err := registry.NewClient(
+		registry.ClientOptDebug(settings.Debug),
+		registry.ClientOptWriter(os.Stdout),
+		registry.ClientOptCredentialsFile(settings.RegistryConfig),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create registry client: %v", err)
+	}
+
+	// OCI chart reference
 	chartRef := fmt.Sprintf("oci://public.ecr.aws/%s/gras-deploy", awsRegistry)
+
 	install := action.NewInstall(actionConfig)
 	install.ReleaseName = releaseName
 	install.Namespace = namespace
+	install.SetRegistryClient(registryClient)
+
 	chartPath, err := install.ChartPathOptions.LocateChart(chartRef, settings)
 	if err != nil {
 		return fmt.Errorf("failed to locate chart: %v", err)
 	}
+
 	chart, err := loader.Load(chartPath)
 	if err != nil {
 		return fmt.Errorf("failed to load chart: %v", err)
 	}
+
 	// Merge values from the template file.
 	vals := map[string]interface{}{}
 	if fileVals, err := os.ReadFile(tmplFile); err == nil {
@@ -746,10 +883,12 @@ func deployTemplate(tmplFile, releaseName, namespace string) error {
 	} else {
 		log.Printf("warning: could not read values from %s: %v", tmplFile, err)
 	}
+
 	rel, err := install.Run(chart, vals)
 	if err != nil {
 		return fmt.Errorf("failed to install helm release: %v", err)
 	}
+
 	log.Printf("Helm release %q installed in namespace %q (chart version: %s)", rel.Name, rel.Namespace, rel.Chart.Metadata.Version)
 	return nil
 }

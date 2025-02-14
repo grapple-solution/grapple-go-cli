@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -41,6 +42,18 @@ const (
 	ColorYellow = "\033[33m"
 )
 
+// Regex constants
+const (
+	NonEmptyValueRegex = "^.+$"
+	EmptyValueRegex    = ".*"
+	EmailRegex         = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+)
+
+// Default values
+const (
+	DefaultValue = ""
+)
+
 // Print success message in green
 func SuccessMessage(message string) {
 	log.Printf("%s%s%s\n", ColorGreen, message, ColorReset)
@@ -57,12 +70,20 @@ func ErrorMessage(message string) {
 }
 
 // Prompt user for input if not provided via flags
-func PromptInput(prompt string) (string, error) {
+func PromptInput(prompt string, defaultValue string, validationRegex string) (string, error) {
+	if validationRegex == "" {
+		return "", fmt.Errorf("validation regex is required")
+	}
 	promptUI := promptui.Prompt{
-		Label: prompt,
+		Label:   prompt,
+		Default: defaultValue,
 		Validate: func(input string) error {
-			if input == "" {
-				return fmt.Errorf("input cannot be empty")
+			matched, err := regexp.MatchString(validationRegex, input)
+			if err != nil {
+				return fmt.Errorf("invalid regex pattern: %v", err)
+			}
+			if !matched {
+				return fmt.Errorf("input does not match required pattern")
 			}
 			return nil
 		},

@@ -1,0 +1,11 @@
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+ingressRoute:
+  dashboard:
+    enabled: false
+service:
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+globalArguments:
+- "--api.insecure=true"
