@@ -54,9 +54,6 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	// Connect to cluster
 	connectToCivoCluster := func() error {
-		if autoConfirm {
-			reconnect = false
-		}
 		err := connectToCluster(cmd, args)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
@@ -65,24 +62,29 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	err = connectToCivoCluster()
-	if err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-		return err
-	}
-
 	// Initialize Kubernetes clients
 	settings := cli.New()
-	config, err := settings.RESTClientGetter().ToRESTConfig()
-	if err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Failed to get REST config: %v", err))
-		return err
-	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	config, clientset, err := utils.GetKubernetesConfig()
 	if err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Failed to create Kubernetes client: %v", err))
-		return err
+		utils.InfoMessage("No existing connection found")
+		err = connectToCivoCluster()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+
+		config, err = settings.RESTClientGetter().ToRESTConfig()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to get REST config: %v", err))
+			return err
+		}
+
+		clientset, err = kubernetes.NewForConfig(config)
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to create Kubernetes client: %v", err))
+			return err
+		}
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)

@@ -28,7 +28,6 @@ This will update your kubeconfig file to allow kubectl access to the cluster.`,
 func init() {
 	ConnectCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster to connect to")
 	ConnectCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region where the cluster is located")
-	ConnectCmd.Flags().BoolVar(&reconnect, "reconnect", true, "Force reconnection even if already connected")
 }
 
 // Function to handle the "connect" command logic
@@ -52,17 +51,6 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
 		utils.InfoMessage("Already running inside a Kubernetes cluster")
 		return nil
-	}
-
-	// Check existing kubeconfig if not forcing reconnect
-	if !reconnect {
-
-		connected, contextName := hasExistingConnection()
-		if connected {
-			utils.InfoMessage(fmt.Sprintf("Already connected to a civo kubernetes cluster, %s", contextName))
-			return nil
-		}
-		utils.InfoMessage("No active cluster connection found, proceeding to create a new connection")
 	}
 
 	if civoRegion == "" {
@@ -140,52 +128,6 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 	utils.SuccessMessage(fmt.Sprintf("Successfully connected to cluster '%s'", clusterName))
 	return nil
-}
-
-// hasExistingConnection checks if there is an existing valid kubernetes connection
-func hasExistingConnection() (bool, string) {
-	utils.InfoMessage("Checking for existing kubernetes connection")
-	home := os.Getenv("HOME")
-	contextName := ""
-	if home == "" {
-		return false, contextName
-	}
-
-	kubeConfigPath := filepath.Join(home, ".kube", "config")
-	if _, err := os.Stat(kubeConfigPath); err != nil {
-		return false, contextName
-	}
-
-	config, err := clientcmd.LoadFromFile(kubeConfigPath)
-	if err != nil {
-		return false, contextName
-	}
-
-	contextName = config.CurrentContext
-	if contextName == "" || config.Contexts[contextName] == nil {
-		return false, contextName
-	}
-
-	if config.Contexts[contextName].Cluster == "" {
-		return false, contextName
-	}
-
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	if err != nil {
-		return false, contextName
-	}
-
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		return false, contextName
-	}
-
-	_, err = clientset.CoreV1().Namespaces().List(context.TODO(), v1.ListOptions{})
-	if err != nil {
-		return false, contextName
-	}
-
-	return true, contextName
 }
 
 // Configure kubectl for the created cluster
