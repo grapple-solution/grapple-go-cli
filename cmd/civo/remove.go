@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,8 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // RemoveCmd represents the remove command
@@ -35,25 +32,8 @@ func init() {
 	RemoveCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
 }
 
-func getClusterDetailsFromConfig() bool {
-	// Get kubernetes config
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		// Try loading from kubeconfig file if not in cluster
-		home := os.Getenv("HOME")
-		kubeconfig := filepath.Join(home, ".kube", "config")
-		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
-		if err != nil {
-			utils.InfoMessage("Could not load kubernetes config, proceeding with provided values")
-			return false
-		}
-	}
+func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 
-	// Create kubernetes clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return false
-	}
 	// Try to get grsf-config secret
 	secret, err := clientset.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grsf-config", v1.GetOptions{})
 	if err != nil {
@@ -97,16 +77,16 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	if autoConfirm {
-		reconnect = false
-		err = connectToCluster(cmd, args)
+
+		_, clientSet, err := utils.GetKubernetesConfig()
 		if err != nil {
-			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-			return err
+			utils.InfoMessage("No existing connection found")
+		} else {
+			if getClusterDetailsFromConfig(clientSet) {
+				utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
+			}
 		}
 
-		if civoRegion == "" && clusterName == "" && !getClusterDetailsFromConfig() {
-			utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
-		}
 	}
 
 	if civoRegion == "" {

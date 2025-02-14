@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 // ANSI color codes
@@ -100,6 +102,24 @@ func PromptConfirm(message string) (bool, error) {
 	}
 
 	return strings.ToLower(result) == "y", nil
+}
+
+func PromptPassword(prompt string) (string, error) {
+	promptUI := promptui.Prompt{
+		Label: prompt,
+		Mask:  '*',
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("password cannot be empty")
+			}
+			return nil
+		},
+	}
+	result, err := promptUI.Run()
+	if err != nil {
+		return "", err
+	}
+	return result, nil
 }
 
 // Define grappleDomain variable
@@ -382,4 +402,53 @@ func GetHelmConfig(restConfig *rest.Config, helmNamespace string) (*action.Confi
 	helmCfg.RegistryClient = registryClient
 
 	return &helmCfg, nil
+}
+
+// GetKubernetesConfig returns restConfig and clientset after validating the connection
+func GetKubernetesConfig() (*rest.Config, *kubernetes.Clientset, error) {
+	var restConfig *rest.Config
+	var err error
+
+	// Check if running inside a cluster
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		// Get in-cluster config
+		restConfig, err = rest.InClusterConfig()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+		}
+	} else {
+		// Get home directory
+		home := os.Getenv("HOME")
+		if home == "" {
+			return nil, nil, fmt.Errorf("HOME environment variable not set")
+		}
+
+		// Load kubeconfig
+		kubeConfigPath := filepath.Join(home, ".kube", "config")
+		if _, err := os.Stat(kubeConfigPath); err != nil {
+			return nil, nil, fmt.Errorf("kubeconfig not found at %s", kubeConfigPath)
+		}
+
+		// Get REST config from kubeconfig
+		restConfig, err = clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to build REST config: %w", err)
+		}
+	}
+
+	// Create clientset
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Kubernetes clientset: %w", err)
+	}
+
+	// Verify connection by listing namespaces
+	_, err = clientset.CoreV1().Namespaces().List(context.TODO(), v1.ListOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to cluster: %w", err)
+	}
+
+	SuccessMessage("Already Connected to a cluster")
+
+	return restConfig, clientset, nil
 }
