@@ -51,7 +51,7 @@ func createCluster(cmd *cobra.Command, args []string) error {
 
 	// Validate input
 	if clusterName == "" {
-		result, err := utils.PromptInput("Enter cluster name")
+		result, err := utils.PromptInput("Enter cluster name", utils.DefaultValue, utils.NonEmptyValueRegex)
 		if err != nil {
 			utils.ErrorMessage("Cluster name is required")
 			return errors.New("cluster name is required")

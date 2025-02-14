@@ -1,0 +1,30 @@
+config:
+ ssl: 'true'
+ sslissuer: 'letsencrypt-prod'
+registry:
+ enabled: false
+cert-manager:
+ enabled: false
+ installCRDs: false
+externalsecrets:
+ enabled: false
+external-secrets:
+ enabled: false
+ installCRDs: false
+ crds:
+  createClusterExternalSecret: false
+  createClusterSecretStore: false
+ webhook:
+  create: false
+crossplane:
+ enabled: true
+ kubernetes:
+   enabled: true
+ helm:
+   enabled: true
+ civo:
+   enabled: false
+ aws:
+   enabled: false
+ permissions:
+   enabled: false

@@ -462,7 +462,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 
 		// Get CIVO email address if not provided
 		if civoEmailAddress == "" {
-			result, err := utils.PromptInput("Enter CIVO email address")
+			result, err := utils.PromptInput("Enter CIVO email address", utils.DefaultValue, utils.EmailRegex)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to get email address: %w", err)
 			}
