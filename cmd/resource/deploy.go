@@ -858,9 +858,7 @@ func askGRUIMEnablement(tmplFile string) error {
 		return err
 	}
 	if !enable {
-		if grapi, ok := tmpl["grapi"].(map[interface{}]interface{}); ok {
-			delete(grapi, "gruims")
-		}
+		delete(tmpl, "gruim")
 	}
 	newData, err := yaml.Marshal(tmpl)
 	if err != nil {
