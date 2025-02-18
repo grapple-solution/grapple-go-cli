@@ -18,12 +18,10 @@ var (
 	KubeNS           string
 
 	// Constants (adjust as needed)
-	DB_FILE                  = "db-file"
-	DB_MYSQL_MODEL_BASED     = "db-mysql-model-based"
-	DB_MYSQL_DISCOVERY_BASED = "db-mysql-discovery-based"
-	INTERNAL_DB              = "internal"
-	EXTERNAL_DB              = "external"
-	awsRegistry              = "p7h7z5g3"
-	templateFileDest         = "/tmp/template.yaml" // working template file location
-	tmpFileDest              = "/tmp/temp_file"
+	awsRegistry                = "p7h7z5g3"
+	templateFileDest           = "/tmp/template.yaml" // working template file location
+	kubeblocksTemplateFileDest = "/tmp/kube_db.yaml"
+
+	// Additional Global variables
+	URL string
 )

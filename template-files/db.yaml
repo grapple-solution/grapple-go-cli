@@ -2,15 +2,6 @@ gras: {}
 grapi:
   # beimagetag: "v0.112"
   ingress: true
-  initContainers:
-  - name: init-db
-    spec:
-      name: init-db
-      command: ['bash', '-c', "$command"]
-  restcruds:
-  - name: "$DATABASE_SCHEMA"
-    spec:
-      datasource: "$DATABASE_SCHEMA"
 
 gruim:
   style: '{"colors":{"primary":{"DEFAULT":"#004a99","fg":"#ffffff"},"accent":{"DEFAULT":"#fa7252","fg":"#ffffff"}}}'

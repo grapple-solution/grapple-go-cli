@@ -78,9 +78,16 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if err := cloneExamplesRepo(repoPath); err != nil {
 		return err
 	}
+
+	if grasTemplate != "" {
+		if err := utils.ValidateGrasTemplates(grasTemplate); err != nil {
+			return err
+		}
+	}
+
 	// If template not specified, prompt user to select one
 	if grasTemplate == "" {
-		result, err := utils.PromptSelect("Select template type", GrasTemplate)
+		result, err := utils.PromptSelect("Select template type", utils.GrasTemplates)
 		if err != nil {
 			return fmt.Errorf("template selection failed: %w", err)
 		}
@@ -88,9 +95,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	switch grasTemplate {
-	case DB_MYSQL_MODEL_BASED, DB_MYSQL_DISCOVERY_BASED:
+	case utils.DB_MYSQL_MODEL_BASED, utils.DB_MYSQL_DISCOVERY_BASED:
 		if dbType == "" {
-			result, err := utils.PromptSelect("Select database type", GrasDBType)
+			result, err := utils.PromptSelect("Select database type", utils.GrasDBType)
 			if err != nil {
 				return fmt.Errorf("database type selection failed: %w", err)
 			}
@@ -100,13 +107,13 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Handle different template types
 	switch grasTemplate {
-	case DB_FILE:
+	case utils.DB_FILE:
 		return deployDBFile(clientset, restConfig, repoPath)
-	case DB_CACHE_REDIS:
+	case utils.DB_CACHE_REDIS:
 		return deployDBCacheRedis(clientset, restConfig, repoPath, logOnCliAndFileStart, logOnFileStart)
-	case DB_MYSQL_MODEL_BASED:
+	case utils.DB_MYSQL_MODEL_BASED:
 		return deployDBMySQL(clientset, restConfig, repoPath, "model", dbType, logOnCliAndFileStart, logOnFileStart)
-	case DB_MYSQL_DISCOVERY_BASED:
+	case utils.DB_MYSQL_DISCOVERY_BASED:
 		return deployDBMySQL(clientset, restConfig, repoPath, "discovery", dbType, logOnCliAndFileStart, logOnFileStart)
 	default:
 		return fmt.Errorf("invalid template type: %s", grasTemplate)
@@ -154,7 +161,7 @@ func deployDBCacheRedis(client *kubernetes.Clientset, restConfig *rest.Config, r
 
 func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string, dbStyle string, dbType string, logOnCliAndFileStart, logOnFileStart func()) error {
 	var manifestPath string
-	if dbType == "internal" {
+	if dbType == utils.DB_INTERNAL {
 		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/internal_resource.yaml", dbStyle))
 		utils.InfoMessage("Checking and installing kubeblocks...")
 		logOnFileStart()
@@ -166,7 +173,7 @@ func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPa
 		utils.SuccessMessage("Checked kubeblocks installation")
 		return applyManifest(client, restConfig, manifestPath)
 
-	} else {
+	} else if dbType == utils.DB_EXTERNAL {
 		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/external_resource.yaml", dbStyle))
 		if err := applyManifest(client, restConfig, manifestPath); err != nil {
 			return err
@@ -174,7 +181,7 @@ func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPa
 
 		utils.InfoMessage("Creating external db secret...")
 		logOnFileStart()
-		if err := createExternalDBSecret(client); err != nil {
+		if err := utils.CreateExternalDBSecret(client, DeploymentNamespace, GrasName); err != nil {
 			logOnCliAndFileStart()
 			return err
 		}
@@ -185,32 +192,6 @@ func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPa
 	return nil
 }
 
-func createExternalDBSecret(client *kubernetes.Clientset) error {
-	// Extract credentials from existing secret
-	existingSecret, err := client.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grpl-e-d-external-sec", metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get existing secret: %w", err)
-	}
-	// Create new secret
-	newSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-conn-credential", GrasName),
-			Namespace: DeploymentNamespace,
-		},
-		Data: map[string][]byte{
-			"host":     []byte("aurora-mysql-test.cpfyybdyajmx.eu-central-1.rds.amazonaws.com"),
-			"port":     []byte("3306"),
-			"username": existingSecret.Data["username"],
-			"password": existingSecret.Data["password"],
-		},
-	}
-
-	_, err = client.CoreV1().Secrets(DeploymentNamespace).Create(context.TODO(), newSecret, metav1.CreateOptions{})
-	if errors.IsAlreadyExists(err) {
-		_, err = client.CoreV1().Secrets(DeploymentNamespace).Update(context.TODO(), newSecret, metav1.UpdateOptions{})
-	}
-	return err
-}
 func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manifestPath string) error {
 	// Read the manifest file
 	yamlFile, err := os.ReadFile(manifestPath)

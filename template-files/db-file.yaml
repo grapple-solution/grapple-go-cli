@@ -3,12 +3,6 @@ grapi:
   # beimagetag: "v0.112"
   discoveredrepos: true
   ingress: true
-  initContainers:
-  - name: test
-    spec:
-      name: init-db
-      image: busybox:1.28
-      command: ['sh', '-c', "if ! test -f $db_file; then wget -O $db_file $testdata_url; chmod 777 $db_file; fi"]
   volumes:
   - name: data
     emptyDir: {}
@@ -17,18 +11,6 @@ grapi:
   volumeMounts:
   - name: data
     mountPath: /data
-  datasources:
-  - name: "db"
-    spec:
-      memory:
-        connector: "memory"
-        name: "db"
-        file: "$db_file"
-        localStorage: "db"
-  restcruds:
-  - name: "restcrud"
-    spec:
-      datasource: "db"
 
 gruim:
   style: '{"colors":{"primary":{"DEFAULT":"#34344A","fg":"#fff"},"accent":{"DEFAULT":"#CC5A71","fg":"#fff"}}}'
