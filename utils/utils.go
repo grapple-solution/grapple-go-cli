@@ -34,26 +34,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// ANSI color codes
-const (
-	ColorReset  = "\033[0m"
-	ColorRed    = "\033[31m"
-	ColorGreen  = "\033[32m"
-	ColorYellow = "\033[33m"
-)
-
-// Regex constants
-const (
-	NonEmptyValueRegex = "^.+$"
-	EmptyValueRegex    = ".*"
-	EmailRegex         = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
-)
-
-// Default values
-const (
-	DefaultValue = ""
-)
-
 // Print success message in green
 func SuccessMessage(message string) {
 	log.Printf("%s%s%s\n", ColorGreen, message, ColorReset)
@@ -472,4 +452,31 @@ func GetKubernetesConfig() (*rest.Config, *kubernetes.Clientset, error) {
 	SuccessMessage("Already Connected to a cluster")
 
 	return restConfig, clientset, nil
+}
+
+func CreateExternalDBSecret(client *kubernetes.Clientset, deploymentNamespace string, grasName string) error {
+	// Extract credentials from existing secret
+	existingSecret, err := client.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grpl-e-d-external-sec", v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get existing secret: %w", err)
+	}
+	// Create new secret
+	newSecret := &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-conn-credential", grasName),
+			Namespace: deploymentNamespace,
+		},
+		Data: map[string][]byte{
+			"host":     []byte("aurora-mysql-test.cpfyybdyajmx.eu-central-1.rds.amazonaws.com"),
+			"port":     []byte("3306"),
+			"username": existingSecret.Data["username"],
+			"password": existingSecret.Data["password"],
+		},
+	}
+
+	_, err = client.CoreV1().Secrets(deploymentNamespace).Create(context.TODO(), newSecret, v1.CreateOptions{})
+	if errors.IsAlreadyExists(err) {
+		_, err = client.CoreV1().Secrets(deploymentNamespace).Update(context.TODO(), newSecret, v1.UpdateOptions{})
+	}
+	return err
 }
