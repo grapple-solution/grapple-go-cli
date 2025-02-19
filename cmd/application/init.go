@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cli/go-gh"
+	"github.com/cli/go-gh/pkg/api"
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
 )
@@ -48,6 +49,9 @@ func initializeApplication(cmd *cobra.Command, args []string) error {
 
 	// Set template based on type
 	setGrappleTemplate()
+
+	// get GitHub token
+	getGitHubToken()
 
 	// Validate and get project name
 	if err := validateAndSetProjectName(); err != nil {
@@ -121,7 +125,9 @@ func handleDirectoryConflicts() error {
 		// Check if directory exists locally
 		if _, err := os.Stat(projectName); os.IsNotExist(err) {
 			// Check if repo exists on GitHub
-			client, err := gh.RESTClient(nil)
+			client, err := gh.RESTClient(&api.ClientOptions{
+				AuthToken: githubToken,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to create GitHub client: %w", err)
 			}
@@ -164,18 +170,19 @@ func handleDirectoryConflicts() error {
 	return nil
 }
 func authenticateGitHub() error {
-	_, err := gh.RESTClient(nil)
+	_, err := gh.RESTClient(&api.ClientOptions{
+		AuthToken: githubToken,
+	})
 	if err != nil {
-		if githubToken == "" {
-			return fmt.Errorf("GitHub token required for authentication")
-		}
-		os.Setenv("GITHUB_TOKEN", githubToken)
+		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 	return nil
 }
 
 func createOrCloneRepository() error {
-	client, err := gh.RESTClient(nil)
+	client, err := gh.RESTClient(&api.ClientOptions{
+		AuthToken: githubToken,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
@@ -227,4 +234,18 @@ func printNextSteps() {
 	utils.InfoMessage("2. Run 'grpl dev help' to see available commands")
 	utils.InfoMessage("3. Run 'grpl dev ns <namespace>' to set up your namespace")
 	utils.InfoMessage("4. Run 'grpl dev' to start the project")
+}
+
+func getGitHubToken() error {
+
+	if githubToken == "" {
+		result, err := utils.PromptInput("Enter GitHub token", utils.DefaultValue, utils.AlphaNumericWithHyphenUnderscoreRegex)
+		if err != nil {
+			return fmt.Errorf("invalid GitHub token: %w", err)
+		}
+		githubToken = result
+	}
+	os.Setenv("GITHUB_TOKEN", githubToken)
+
+	return nil
 }
