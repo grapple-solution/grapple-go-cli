@@ -15,14 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	projectName     string
-	autoConfirm     bool
-	githubToken     string
-	grappleType     string
-	grappleTemplate string
-)
-
 // InitCmd represents the init command
 var InitCmd = &cobra.Command{
 	Use:   "init",
@@ -124,14 +116,34 @@ func validateAndSetProjectName() error {
 	}
 	return nil
 }
-
 func handleDirectoryConflicts() error {
 	for {
+		// Check if directory exists locally
 		if _, err := os.Stat(projectName); os.IsNotExist(err) {
-			break
+			// Check if repo exists on GitHub
+			client, err := gh.RESTClient(nil)
+			if err != nil {
+				return fmt.Errorf("failed to create GitHub client: %w", err)
+			}
+
+			// Get authenticated user
+			var user struct {
+				Login string `json:"login"`
+			}
+			err = client.Get("user", &user)
+			if err != nil {
+				return fmt.Errorf("failed to get GitHub user: %w", err)
+			}
+
+			utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
+			response := struct{ Name string }{}
+			err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+			if err != nil { // Repo doesn't exist
+				break
+			}
 		}
 
-		utils.InfoMessage(fmt.Sprintf("Directory %s already exists", projectName))
+		utils.InfoMessage(fmt.Sprintf("Directory or repository %s already exists", projectName))
 		if !autoConfirm {
 			confirm, err := utils.PromptConfirm("Would you like to rename the project with an increment?")
 			if err != nil || !confirm {
@@ -147,7 +159,7 @@ func handleDirectoryConflicts() error {
 			parts = append(parts, "1")
 		}
 		projectName = strings.Join(parts, "-")
-		utils.InfoMessage(fmt.Sprintf("New project name: %s", projectName))
+		utils.InfoMessage(fmt.Sprintf("Trying new project name: %s", projectName))
 	}
 	return nil
 }

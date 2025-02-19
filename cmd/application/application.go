@@ -23,6 +23,7 @@ It provides functionality to create new projects from templates and set up devel
 func init() {
 
 	ApplicationCmd.AddCommand(InitCmd)
+	ApplicationCmd.AddCommand(UpdateCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
