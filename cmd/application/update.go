@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cli/go-gh"
+	"github.com/cli/go-gh/pkg/api"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/grapple-solution/grapple_cli/utils"
@@ -43,8 +44,16 @@ func updateApplication(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// get github auth token
+	err := getGitHubToken()
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub token: %w", err)
+	}
+
 	// Setup GitHub client
-	_, err := gh.RESTClient(nil)
+	_, err = gh.RESTClient(&api.ClientOptions{
+		AuthToken: githubToken,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}

@@ -121,6 +121,8 @@ func validateAndSetProjectName() error {
 	return nil
 }
 func handleDirectoryConflicts() error {
+
+	askedOnce := false
 	for {
 		// Check if directory exists locally
 		if _, err := os.Stat(projectName); os.IsNotExist(err) {
@@ -150,11 +152,12 @@ func handleDirectoryConflicts() error {
 		}
 
 		utils.InfoMessage(fmt.Sprintf("Directory or repository %s already exists", projectName))
-		if !autoConfirm {
+		if !autoConfirm && !askedOnce {
 			confirm, err := utils.PromptConfirm("Would you like to rename the project with an increment?")
 			if err != nil || !confirm {
 				return fmt.Errorf("operation cancelled by user")
 			}
+			askedOnce = true
 		}
 
 		parts := strings.Split(projectName, "-")
