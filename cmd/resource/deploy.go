@@ -265,11 +265,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	// 5. Ask for GRUIM enablement (interactive or by flag)
-	if !cmd.Flags().Changed("enable-gruim") {
-		utils.InfoMessage("Asking for GRUIM enablement...")
-		if err := askGRUIMEnablement(templateFileDest); err != nil {
-			return err
-		}
+	utils.InfoMessage("Asking for GRUIM enablement...")
+	if err := askGRUIMEnablement(templateFileDest, cmd.Flags().Changed("enable-gruim")); err != nil {
+		return err
 	}
 
 	// Handle database schema and init containers
@@ -289,17 +287,19 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 8. Finally, deploy the template using the Helm Go SDK.
-	utils.InfoMessage("Deploying the template using the Helm")
-	logOnFileStart()
-	if err := deployTemplate(templateFileDest, GRASName, KubeNS); err != nil {
+	if !isRender {
+		// 8. Finally, deploy the template using the Helm Go SDK.
+		utils.InfoMessage("Deploying the template using the Helm")
+		logOnFileStart()
+		if err := deployTemplate(templateFileDest, GRASName, KubeNS); err != nil {
+			logOnCliAndFileStart()
+			return err
+		}
 		logOnCliAndFileStart()
-		return err
-	}
-	logOnCliAndFileStart()
 
-	// 9. Optionally, clean up the temporary file.
-	_ = os.Remove(templateFileDest)
+		// 9. Optionally, clean up the temporary file.
+		// _ = os.Remove(templateFileDest)
+	}
 
 	utils.SuccessMessage("Resource deployed successfully!")
 	return nil
@@ -864,10 +864,10 @@ func takeRelationInputFromCLI(tmplFile string) error {
 }
 
 // askGRUIMEnablement prompts whether to enable GRUIM and, if not, removes the "gruims" section from the template.
-func askGRUIMEnablement(tmplFile string) error {
+func askGRUIMEnablement(tmplFile string, isFlagSet bool) error {
 	var enable bool
-	if EnableGRUIM {
-		enable = true
+	if EnableGRUIM || isFlagSet {
+		enable = EnableGRUIM
 	} else {
 		choice, err := utils.PromptSelect("Do you want to enable GRUIM?", []string{"Yes", "No"})
 		if err != nil {

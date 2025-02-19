@@ -23,5 +23,6 @@ var (
 	kubeblocksTemplateFileDest = "/tmp/kube_db.yaml"
 
 	// Additional Global variables
-	URL string
+	URL      string
+	isRender bool
 )
