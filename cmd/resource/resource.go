@@ -27,6 +27,7 @@ Use the subcommands to perform specific actions on resources.`,
 
 func init() {
 	ResourceCmd.AddCommand(DeployCmd)
+	ResourceCmd.AddCommand(RenderCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command
