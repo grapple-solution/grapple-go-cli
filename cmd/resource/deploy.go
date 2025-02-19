@@ -16,6 +16,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	// Helm Go SDK packages
 	"helm.sh/helm/v3/pkg/action"
@@ -61,18 +63,29 @@ func init() {
 	DeployCmd.Flags().StringVar(&DatabaseSchema, "database-schema", "", "Database schema")
 	DeployCmd.Flags().BoolVar(&AutoDiscovery, "auto-discovery", false, "Auto discovery flag")
 	DeployCmd.Flags().StringVar(&SourceData, "source-data", "", "Data source URL")
-	DeployCmd.Flags().BoolVar(&EnableGRUIM, "enable-gruim", false, "Enable GRUIM")
+	DeployCmd.Flags().BoolVar(&EnableGRUIM, "enable-gruim", false, "Enables GRUIM")
 	DeployCmd.Flags().StringVar(&DBFilePath, "db-file-path", "", "Path to DB file")
 	DeployCmd.Flags().StringVar(&KubeContext, "kube-context", "", "Kubernetes context to use")
 	DeployCmd.Flags().StringVar(&KubeNS, "namespace", "", "Kubernetes namespace to use")
 }
 
+var (
+	restConfig *rest.Config
+	clientset  *kubernetes.Clientset
+)
+
 // runDeploy is the main function for the deploy command.
 func runDeploy(cmd *cobra.Command, args []string) error {
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_resource_deploy.log")
-
 	var err error
+	utils.InfoMessage("Getting Kubernetes config...")
+	restConfig, clientset, err = utils.GetKubernetesConfig()
+	if err != nil {
+		utils.ErrorMessage("Failed to get Kubernetes config: " + err.Error())
+		return err
+	}
+
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_resource_deploy.log")
 
 	defer func() {
 		logFile.Sync() // Ensure logs are flushed before closing
@@ -93,7 +106,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	}
 
-	utils.InfoMessage(fmt.Sprintf("GRAS_NAME: %s", GRASName))
+	utils.InfoMessage(fmt.Sprintf("gras name: %s", GRASName))
 
 	// Check if GRAS_TEMPLATE is provided and validate it
 	if GRASTemplate != "" {
@@ -114,18 +127,13 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		GRASTemplate = result
 	}
 
-	utils.InfoMessage(fmt.Sprintf("GRAS_TEMPLATE: %s", GRASTemplate))
+	utils.InfoMessage(fmt.Sprintf("gras template: %s", GRASTemplate))
 
 	err = prepareNamespaceForGrasInstallation()
 	if err != nil {
 		return err
 	}
-	// // 2. Validate connectivity to the cluster and select the proper context.
-	// restConfig, clientset, err := utils.GetKubernetesConfig()
-	// if err != nil {
-	// 	utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-	// 	return err
-	// }
+
 	// 3. Copy a base template file (from GRPL_WORKDIR) to our working file.
 	if err := prepareTemplateFile(); err != nil {
 		return err
@@ -133,12 +141,16 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	if (GRASTemplate == utils.DB_MYSQL_MODEL_BASED || GRASTemplate == utils.DB_MYSQL_DISCOVERY_BASED) && DBType == utils.DB_EXTERNAL {
 		var database, host, port, user, password, url string
+
+		utils.InfoMessage("Updating resource for with datasource info")
 		if DatasourcesInput != "" {
-			database, host, port, user, password, url, err = transformDatasourcesInputToYAML(DatasourcesInput)
+			utils.InfoMessage("Extracting datasource info...")
+			database, host, port, user, password, url, err = extractDatasourceInfo(DatasourcesInput)
 			if err != nil {
 				return err
 			}
 		} else {
+			utils.InfoMessage("Taking datasource info from CLI...")
 			database, host, port, user, password, url, err = takeDatasourceInputFromCLI()
 			if err != nil {
 				return err
@@ -149,12 +161,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		URL = url
 
 		// Create secret for external DB credentials
-		utils.InfoMessage("Creating external db secret...")
-		_, client, err := utils.GetKubernetesConfig()
-		if err != nil {
-			utils.ErrorMessage("Failed to get Kubernetes config: " + err.Error())
-			return err
-		}
+		utils.InfoMessage("Creating external db secret using collected datasource info...")
 
 		// Create new secret
 		newSecret := &corev1.Secret{
@@ -170,9 +177,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			},
 		}
 
-		_, err = client.CoreV1().Secrets(KubeNS).Create(context.TODO(), newSecret, v1.CreateOptions{})
+		_, err = clientset.CoreV1().Secrets(KubeNS).Create(context.TODO(), newSecret, v1.CreateOptions{})
 		if k8serrors.IsAlreadyExists(err) {
-			_, err = client.CoreV1().Secrets(KubeNS).Update(context.TODO(), newSecret, v1.UpdateOptions{})
+			_, err = clientset.CoreV1().Secrets(KubeNS).Update(context.TODO(), newSecret, v1.UpdateOptions{})
 			if err != nil {
 				utils.ErrorMessage("Failed to update external db secret: " + err.Error())
 				return err
@@ -185,9 +192,11 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		utils.SuccessMessage("Created external db secret")
 
 	} else if GRASTemplate == utils.DB_FILE {
+		utils.InfoMessage("Taking DB file path...")
 		if err := takeDBFilePath(); err != nil {
 			return err
 		}
+		utils.InfoMessage("Updating resource for with datasource info")
 		if err := updateTemplateForDataSourceIncaseOfDbFile(); err != nil {
 			return err
 		}
@@ -196,11 +205,14 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// 4. Process inputs – if models/datasources/discoveries/relations were passed via CLI, transform them.
 	// Otherwise, invoke interactive functions.
 	if GRASTemplate == utils.DB_MYSQL_MODEL_BASED {
+		utils.InfoMessage("Updating resource with models info")
 		if ModelsInput != "" {
+			utils.InfoMessage("Transforming models input to YAML...")
 			if err := transformModelInputToYAML(ModelsInput, templateFileDest); err != nil {
 				return err
 			}
 		} else {
+			utils.InfoMessage("Taking models input from CLI...")
 			if err := takeModelInputFromCLI(templateFileDest); err != nil {
 				return err
 			}
@@ -208,11 +220,14 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	if GRASTemplate == utils.DB_MYSQL_DISCOVERY_BASED {
+		utils.InfoMessage("Updating resource with discoveries info")
 		if DiscoveriesInput != "" {
+			utils.InfoMessage("Transforming discoveries input to YAML...")
 			if err := transformDiscoveriesInputToYAML(DiscoveriesInput, templateFileDest); err != nil {
 				return err
 			}
 		} else {
+			utils.InfoMessage("Taking discoveries input from CLI...")
 			if err := takeDiscoveryInputFromCLI(templateFileDest, cmd.Flags().Changed("auto-discovery")); err != nil {
 				return err
 			}
@@ -220,8 +235,8 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	if DBType == utils.DB_INTERNAL {
-
-		utils.InfoMessage("Creating internal DB")
+		utils.InfoMessage("Updating resource for internal DB info")
+		utils.InfoMessage("Creating internal DB...")
 		if err := createInternalDB(); err != nil {
 			return err
 		}
@@ -230,16 +245,20 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else if DBType == utils.DB_EXTERNAL {
+		utils.InfoMessage("Updating resource for external DB info")
 		if err := updateTemplateForExternalDB(); err != nil {
 			return err
 		}
 	}
 
 	if RelationsInput != "" {
+		utils.InfoMessage("Updating resource with relations info")
+		utils.InfoMessage("Transforming relations input to YAML...")
 		if err := transformRelationInputToYAML(RelationsInput, templateFileDest); err != nil {
 			return err
 		}
 	} else if !cmd.Flags().Changed("relations") {
+		utils.InfoMessage("Taking relations input from CLI...")
 		if err := takeRelationInputFromCLI(templateFileDest); err != nil {
 			return err
 		}
@@ -247,34 +266,42 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// 5. Ask for GRUIM enablement (interactive or by flag)
 	if !cmd.Flags().Changed("enable-gruim") {
+		utils.InfoMessage("Asking for GRUIM enablement...")
 		if err := askGRUIMEnablement(templateFileDest); err != nil {
 			return err
 		}
 	}
 
 	// Handle database schema and init containers
+	utils.InfoMessage("Updating resource for init containers")
 	if err := updateTemplateForInitContainers(cmd.Flags().Changed("source-data")); err != nil {
 		return err
 	}
 
+	utils.InfoMessage("Updating resource for restcruds")
 	if err := updateTemplateForRestcruds(); err != nil {
 		return err
 	}
 
 	// 7. Substitute environment variables in the template (using os.ExpandEnv).
+	utils.InfoMessage("Substituting environment variables in the template...")
 	if err := substituteEnvVarsInTemplate(templateFileDest); err != nil {
 		return err
 	}
 
 	// 8. Finally, deploy the template using the Helm Go SDK.
+	utils.InfoMessage("Deploying the template using the Helm")
+	logOnFileStart()
 	if err := deployTemplate(templateFileDest, GRASName, KubeNS); err != nil {
+		logOnCliAndFileStart()
 		return err
 	}
+	logOnCliAndFileStart()
 
 	// 9. Optionally, clean up the temporary file.
-	// _ = os.Remove(templateFileDest)
+	_ = os.Remove(templateFileDest)
 
-	fmt.Println("Resource deployed successfully!")
+	utils.SuccessMessage("Resource deployed successfully!")
 	return nil
 }
 
@@ -344,7 +371,7 @@ func transformModelInputToYAML(models string, tmplFile string) error {
 	return os.WriteFile(tmplFile, newData, 0644)
 }
 
-func transformDatasourcesInputToYAML(ds string) (string, string, string, string, string, string, error) {
+func extractDatasourceInfo(ds string) (string, string, string, string, string, string, error) {
 	parts := strings.Split(ds, "|")
 	var database, host, port, user, password, url string
 
@@ -858,7 +885,10 @@ func askGRUIMEnablement(tmplFile string) error {
 		return err
 	}
 	if !enable {
+		utils.InfoMessage("Disabling GRUIM...")
 		delete(tmpl, "gruim")
+	} else {
+		utils.InfoMessage("Enabling GRUIM...")
 	}
 	newData, err := yaml.Marshal(tmpl)
 	if err != nil {
@@ -983,6 +1013,10 @@ func substituteEnvVarsInTemplate(tmplFile string) error {
 // deployTemplate uses the Helm Go SDK to install (or upgrade) the release.
 func deployTemplate(tmplFile, releaseName, namespace string) error {
 	// Set up Helm settings.
+
+	utils.StartSpinner("Deploying the gras resource using the Helm\n")
+	defer utils.StopSpinner()
+
 	settings := cli.New()
 	settings.SetNamespace(namespace)
 
@@ -1164,20 +1198,6 @@ func updateTemplateForInternalDB() error {
 }
 
 func updateTemplateForExternalDB() error {
-
-	_, client, err := utils.GetKubernetesConfig()
-	if err != nil {
-		utils.ErrorMessage("Failed to get Kubernetes config: " + err.Error())
-		return err
-	}
-
-	utils.InfoMessage("Creating external db secret...")
-	if err := utils.CreateExternalDBSecret(client, KubeNS, GRASName); err != nil {
-		utils.ErrorMessage("Failed to create external db secret: " + err.Error())
-		return err
-	}
-	utils.SuccessMessage("Created external db secret")
-
 	// Handle init containers based on source data
 	data, err := os.ReadFile(templateFileDest)
 	if err != nil {
@@ -1370,11 +1390,6 @@ func createInternalDB() error {
 		return fmt.Errorf("failed to read manifest file: %v", err)
 	}
 
-	restConfig, _, err := utils.GetKubernetesConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get kubernetes config: %v", err)
-	}
-
 	utils.InfoMessage("Checking and installing kubeblocks on cluster")
 	if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 		utils.ErrorMessage("kubeblocks installation error: " + err.Error())
@@ -1460,14 +1475,8 @@ func prepareNamespaceForGrasInstallation() error {
 		}
 
 		if result == "Choose from existing namespaces" {
-			// Get Kubernetes config and client
-			_, client, err := utils.GetKubernetesConfig()
-			if err != nil {
-				return fmt.Errorf("failed to get kubernetes config: %v", err)
-			}
-
 			// List all namespaces
-			namespaces, err := client.CoreV1().Namespaces().List(context.Background(), v1.ListOptions{})
+			namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), v1.ListOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to list namespaces: %v", err)
 			}
@@ -1494,14 +1503,8 @@ func prepareNamespaceForGrasInstallation() error {
 		}
 	}
 
-	// Get Kubernetes config and client
-	_, client, err := utils.GetKubernetesConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get kubernetes config: %v", err)
-	}
-
 	// Check if namespace exists
-	_, err = client.CoreV1().Namespaces().Get(context.Background(), KubeNS, v1.GetOptions{})
+	_, err := clientset.CoreV1().Namespaces().Get(context.Background(), KubeNS, v1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			// Create namespace if it doesn't exist
@@ -1510,7 +1513,7 @@ func prepareNamespaceForGrasInstallation() error {
 					Name: KubeNS,
 				},
 			}
-			_, err = client.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
+			_, err = clientset.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to create namespace: %v", err)
 			}
