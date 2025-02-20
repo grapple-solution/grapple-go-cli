@@ -28,6 +28,8 @@ This command checks for and applies updates to configuration files and documenta
 
 func init() {
 	UpdateCmd.Flags().StringVarP(&grappleTemplate, "grapple-template", "", "grapple-solutions/grapple-template", "Template repository to use")
+	UpdateCmd.Flags().StringVarP(&githubToken, "github-token", "", "", "GitHub token for authentication")
+
 }
 
 func updateApplication(cmd *cobra.Command, args []string) error {
