@@ -1,0 +1,100 @@
+#!/bin/bash
+
+# Detect OS and set global OS variable
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS="mac"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    OS="gnu" 
+else
+    OS="unknown"
+fi
+
+check_and_install_devspace() {
+
+    # checks for checking and installing devspace
+    if ! devspace --version  >/dev/null 2>&1; then
+        echo "devspace cli is required"
+        echo "installing devspace cli..."
+        if [ "${OS}" == "mac" ]; then
+            eval "$(getGumSpinnerOrLogger "devspace is not installed, now installing devspace") brew install devspace"
+        elif [ "${OS}" == "gnu" ]; then
+            status_log $TYPE_INFO "going to refresh snap"
+            sudo snap refresh >/dev/null 2>&1
+            eval "$(getGumSpinnerOrLogger "devspace is not installed, now installing devspace") curl -L -o devspace "https://github.com/loft-sh/devspace/releases/latest/download/devspace-linux-amd64" && sudo install -c -m 0755 devspace /usr/local/bin"
+        else
+            errMsg="Failed to install devspace, OS ${OS} not supported at the moment"
+            echo $errMsg
+            exit 1
+        fi
+    fi
+
+    # extract_devspace_cli_version
+    
+}
+
+check_and_install_taskcli() {
+
+    # checks for checking and installing task cli
+    if ! task --version  >/dev/null 2>&1; then
+        echo "task cli is required"
+        echo "installing task cli..."
+        if [ "${OS}" == "mac" ]; then
+            eval "$(getGumSpinnerOrLogger "task cli is not installed, now installing task cli") brew install go-task/tap/go-task"
+        elif [ "${OS}" == "gnu" ]; then
+            status_log $TYPE_INFO "going to refresh snap"
+            sudo snap refresh >/dev/null 2>&1
+            eval "$(getGumSpinnerOrLogger "task cli is not installed, now installing task cli") sudo snap install task --classic"
+        else
+            errMsg="Failed to install task cli, OS ${OS} not supported at the moment"
+            echo $errMsg
+            exit 1
+        fi
+    fi
+
+    # extract_task_cli_version
+    
+}
+
+# extract_devspace_cli_version(){
+
+#     if ! grep -q "devspace" "$GRPL_WORKDIR/dependency_versions" >/dev/null 2>&1; then 
+
+#         # Get yq version
+#         devspace_version=$(devspace version | awk -F ': ' '/DevSpace version/{print $2}')
+
+#         # Output the latest version
+#         if ! echo "      $devspace_version - devspace" >> "$GRPL_WORKDIR/dependency_versions" >/dev/null 2>&1; then
+#             echo "failed to add devspace version to dependency_versions"
+#         fi
+#     fi
+
+# }
+
+# extract_task_cli_version(){
+
+#     if ! grep -q "task" "$GRPL_WORKDIR/dependency_versions" >/dev/null 2>&1; then 
+
+#         # Get yq version
+#         task_version=$(task --version | awk '{print $3}')
+
+#         # Output the latest version
+#         if ! echo "      $task_version - task" >> "$GRPL_WORKDIR/dependency_versions" >/dev/null 2>&1; then
+#             echo "failed to add task version to dependency_versions"
+#         fi
+#     fi
+# }
+
+# Install package based on package name argument
+case $1 in
+    "devspace")
+        check_and_install_devspace
+        ;;
+    "task")
+        check_and_install_taskcli
+        ;;
+    *)
+        echo "Unknown package: $1"
+        echo "Supported packages: devspace, task"
+        exit 1
+        ;;
+esac
