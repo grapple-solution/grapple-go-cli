@@ -36,19 +36,17 @@ func runDev(cmd *cobra.Command, args []string) error {
 	logOnCliAndFileStart()
 
 	// Install prerequisites
-	// if err := utils.InstallPrerequisite(); err != nil {
-	// 	return fmt.Errorf("failed to install prerequisites: %w", err)
-	// }
+	if err := utils.InstallDevspace(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("failed to install devspace: %v", err))
+		return fmt.Errorf("failed to install devspace: %w", err)
+	}
 
-	// if err := utils.CheckAndInstallDevspace(); err != nil {
-	// 	return fmt.Errorf("failed to install devspace: %w", err)
-	// }
+	if err := utils.InstallTaskCLI(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("failed to install task cli: %v", err))
+		return fmt.Errorf("failed to install task cli: %w", err)
+	}
 
-	// if err := utils.CheckAndInstallTaskCLI(); err != nil {
-	// 	return fmt.Errorf("failed to install task cli: %w", err)
-	// }
-
-	fmt.Println("args : ", args)
+	utils.InfoMessage(fmt.Sprintf("args : %v", args))
 
 	// Handle different command scenarios
 	if len(args) == 0 {
@@ -72,6 +70,7 @@ func runDevspace() error {
 	devCmd.Stdout = os.Stdout
 	devCmd.Stderr = os.Stderr
 	if err := devCmd.Run(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("error running devspace dev: %v", err))
 		return fmt.Errorf("error running devspace dev: %w", err)
 	}
 	return nil
@@ -89,6 +88,7 @@ func handleNamespace(args []string) error {
 	nsCmd.Stdout = os.Stdout
 	nsCmd.Stderr = os.Stderr
 	if err := nsCmd.Run(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("error running namespace command: %v", err))
 		return fmt.Errorf("error running namespace command: %w", err)
 	}
 	return nil
@@ -134,6 +134,7 @@ func handleEnter(container string) error {
 	enterCmd.Stderr = os.Stderr
 
 	if err := enterCmd.Run(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("error entering container: %v", err))
 		return fmt.Errorf("error entering container: %w", err)
 	}
 
@@ -145,6 +146,7 @@ func runDevspaceWithArgs(args []string) error {
 	devCmd.Stdout = os.Stdout
 	devCmd.Stderr = os.Stderr
 	if err := devCmd.Run(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("error running devspace command: %v", err))
 		return fmt.Errorf("error running devspace command: %w", err)
 	}
 	return nil
