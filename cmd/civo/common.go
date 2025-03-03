@@ -46,14 +46,14 @@ const (
 	secKeyDev                 = "dev"
 	secKeySsl                 = "ssl"
 	secKeySslissuer           = "sslissuer"
-	secKeyClusterName         = "cluster-name"
-	secKeyGrapleDNS           = "grapple-dns"
-	secKeyGrapleVersion       = "grapple-version"
-	secKeyGrapleLicense       = "grapple-license"
-	secKeyProviderClusterType = "provider-cluster-type"
-	secKeyCivoClusterID       = "civo-cluster-id"
-	secKeyCivoRegion          = "civo-region"
-	secKeyCivoMasterIP        = "civo-master-ip"
+	secKeyClusterName         = "CLUSTER_NAME"
+	secKeyGrapleDNS           = "GRAPPLE_DNS"
+	secKeyGrapleVersion       = "GRAPPLE_VERSION"
+	secKeyGrapleLicense       = "GRAPPLE_LICENSE"
+	secKeyProviderClusterType = "PROVIDER_CLUSTER_TYPE"
+	secKeyCivoClusterID       = "CIVO_CLUSTER_ID"
+	secKeyCivoRegion          = "CIVO_REGION"
+	secKeyCivoMasterIP        = "CIVO_MASTER_IP"
 )
 
 const (
