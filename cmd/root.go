@@ -5,7 +5,8 @@ import (
 	"os"
 
 	"github.com/grapple-solution/grapple_cli/cmd/application"
-	"github.com/grapple-solution/grapple_cli/cmd/civo"    // Import the civo package
+	"github.com/grapple-solution/grapple_cli/cmd/civo" // Import the civo package
+	"github.com/grapple-solution/grapple_cli/cmd/dev"
 	"github.com/grapple-solution/grapple_cli/cmd/example" // Import the example package
 	"github.com/grapple-solution/grapple_cli/cmd/resource"
 	"github.com/spf13/cobra"
@@ -33,4 +34,5 @@ func init() {
 	rootCmd.AddCommand(example.ExampleCmd)
 	rootCmd.AddCommand(resource.ResourceCmd)
 	rootCmd.AddCommand(application.ApplicationCmd)
+	rootCmd.AddCommand(dev.DevCmd)
 }
