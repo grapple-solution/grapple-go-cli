@@ -35,7 +35,6 @@ func runDev(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
-	// Install prerequisites
 	if err := utils.InstallDevspace(); err != nil {
 		utils.ErrorMessage(fmt.Sprintf("failed to install devspace: %v", err))
 		return fmt.Errorf("failed to install devspace: %w", err)
@@ -46,7 +45,7 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to install task cli: %w", err)
 	}
 
-	utils.InfoMessage(fmt.Sprintf("args : %v", args))
+	// utils.InfoMessage(fmt.Sprintf("args : %v", args))
 
 	// Handle different command scenarios
 	if len(args) == 0 {
