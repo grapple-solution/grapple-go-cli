@@ -7,9 +7,30 @@ import (
 	"runtime"
 )
 
+var OSType = ""
+
+func init() {
+	// Check if OSType is set as environment variable
+	if envOSType := os.Getenv("OSTYPE"); envOSType != "" {
+		OSType = envOSType
+	} else {
+		// If not set in env, determine from runtime
+		switch runtime.GOOS {
+		case "darwin":
+			OSType = "mac"
+		case "linux":
+			OSType = "linux"
+		case "windows":
+			OSType = "windows"
+		}
+	}
+}
+
 // authSudo authenticates sudo once to avoid repeated password prompts
 func authSudo() error {
-	InfoMessage("Authenticating sudo for subsequent operations...")
+	if OSType == "windows" {
+		return nil // No sudo needed on Windows
+	}
 	cmd := exec.Command("sudo", "-v")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -28,9 +49,10 @@ func InstallDevspace() error {
 
 	defer StopSpinner()
 
+	InfoMessage("Installing Devspace CLI...")
 	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
+	switch OSType {
+	case "mac":
 		cmd = exec.Command("brew", "install", "devspace")
 	case "linux":
 		// Authenticate sudo once before operations that need it
@@ -51,8 +73,23 @@ func InstallDevspace() error {
 
 		// Install binary to /usr/local/bin with correct permissions
 		cmd = exec.Command("sudo", "install", "-c", "-m", "0755", "devspace", "/usr/local/bin")
+	case "windows":
+		// Download devspace binary for Windows
+		downloadCmd := exec.Command("powershell", "-Command",
+			"Invoke-WebRequest -Uri https://github.com/loft-sh/devspace/releases/latest/download/devspace-windows-amd64.exe -OutFile devspace.exe")
+		downloadCmd.Stdout = os.Stdout
+		StartSpinner("Downloading Devspace CLI, It will take a few minutes...")
+		if err := downloadCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error downloading devspace: %v", err))
+			return fmt.Errorf("error downloading devspace: %w", err)
+		}
+		StopSpinner()
+
+		// Move to Windows PATH location
+		cmd = exec.Command("powershell", "-Command",
+			"Move-Item -Force devspace.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
 	cmd.Stdout = os.Stdout
@@ -72,9 +109,11 @@ func InstallTaskCLI() error {
 		return nil // Already installed
 	}
 
+	InfoMessage("Installing Task CLI...")
+
 	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
+	switch OSType {
+	case "mac":
 		cmd = exec.Command("brew", "install", "go-task/tap/go-task")
 	case "linux":
 		// Authenticate sudo once before operations that need it
@@ -82,8 +121,23 @@ func InstallTaskCLI() error {
 			return err
 		}
 		cmd = exec.Command("sudo", "snap", "install", "task", "--classic")
+	case "windows":
+		// Download Task binary for Windows
+		downloadCmd := exec.Command("powershell", "-Command",
+			"Invoke-WebRequest -Uri https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip -OutFile task.zip")
+		downloadCmd.Stdout = os.Stdout
+		StartSpinner("Downloading Task CLI, It will take a few minutes...")
+		if err := downloadCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error downloading task: %v", err))
+			return fmt.Errorf("error downloading task: %w", err)
+		}
+		StopSpinner()
+
+		// Extract and install
+		cmd = exec.Command("powershell", "-Command",
+			"Expand-Archive -Path task.zip -DestinationPath $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\ -Force")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
+		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
 	cmd.Stdout = os.Stdout
@@ -94,5 +148,65 @@ func InstallTaskCLI() error {
 	}
 	StopSpinner()
 	SuccessMessage("Task CLI installed successfully")
+	return nil
+}
+
+func InstallYq() error {
+	if _, err := exec.LookPath("yq"); err == nil {
+		return nil // Already installed
+	}
+
+	InfoMessage("Installing Yq CLI...")
+
+	var cmd *exec.Cmd
+	switch OSType {
+	case "mac":
+		cmd = exec.Command("brew", "install", "yq")
+	case "linux":
+		// Authenticate sudo once before operations that need it
+		if err := authSudo(); err != nil {
+			return err
+		}
+
+		// Download yq binary
+		downloadCmd := exec.Command("sudo", "wget", "-O", "/usr/bin/yq",
+			"https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64")
+		downloadCmd.Stdout = os.Stdout
+		StartSpinner("Downloading Yq CLI, It will take a few minutes...")
+		if err := downloadCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error downloading yq: %v", err))
+			return fmt.Errorf("error downloading yq: %w", err)
+		}
+		StopSpinner()
+
+		// Set executable permissions
+		cmd = exec.Command("sudo", "chmod", "+x", "/usr/bin/yq")
+	case "windows":
+		// Download yq binary for Windows
+		downloadCmd := exec.Command("powershell", "-Command",
+			"Invoke-WebRequest -Uri https://github.com/mikefarah/yq/releases/latest/download/yq_windows_amd64.exe -OutFile yq.exe")
+		downloadCmd.Stdout = os.Stdout
+		StartSpinner("Downloading Yq CLI, It will take a few minutes...")
+		if err := downloadCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error downloading yq: %v", err))
+			return fmt.Errorf("error downloading yq: %w", err)
+		}
+		StopSpinner()
+
+		// Move to Windows PATH location
+		cmd = exec.Command("powershell", "-Command",
+			"Move-Item -Force yq.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
+	default:
+		return fmt.Errorf("unsupported operating system: %s", OSType)
+	}
+
+	cmd.Stdout = os.Stdout
+	StartSpinner("Installing Yq CLI, It will take a few minutes...")
+	if err := cmd.Run(); err != nil {
+		ErrorMessage(fmt.Sprintf("Error installing yq: %v", err))
+		return fmt.Errorf("error installing yq: %w", err)
+	}
+	StopSpinner()
+	SuccessMessage("Yq CLI installed successfully")
 	return nil
 }
