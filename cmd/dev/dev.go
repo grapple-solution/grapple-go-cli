@@ -45,6 +45,11 @@ func runDev(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to install task cli: %w", err)
 	}
 
+	if err := utils.InstallYq(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("failed to install yq: %v", err))
+		return fmt.Errorf("failed to install yq: %w", err)
+	}
+
 	// utils.InfoMessage(fmt.Sprintf("args : %v", args))
 
 	// Handle different command scenarios
