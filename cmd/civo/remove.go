@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -70,11 +69,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
-	civoAPIKey = os.Getenv("CIVO_API_TOKEN")
-	if civoAPIKey == "" {
-		utils.ErrorMessage("Civo API key is required, set CIVO_API_TOKEN in your environment variables")
-		return errors.New("civo API key is required, set CIVO_API_TOKEN in your environment variables")
-	}
+	civoAPIKey := getCivoAPIKey()
 
 	if autoConfirm {
 
@@ -90,12 +85,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	if civoRegion == "" {
-		regions := []string{
-			"nyc1",
-			"phx1",
-			"fra1",
-			"lon1",
-		}
+		regions := getCivoRegion(civoAPIKey)
 		result, err := utils.PromptSelect("Select region", regions)
 		if err != nil {
 			utils.ErrorMessage("Region selection is required")
