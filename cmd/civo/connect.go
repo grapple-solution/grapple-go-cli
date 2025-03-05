@@ -88,7 +88,7 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 			utils.ErrorMessage("No clusters found in region " + civoRegion)
 			return errors.New("no clusters found in region " + civoRegion)
 		}
-		result, err := utils.PromptSelect("Select cluster to remove", clusterNames)
+		result, err := utils.PromptSelect("Select cluster to connect to", clusterNames)
 		if err != nil {
 			utils.ErrorMessage("Cluster selection is required")
 			return errors.New("cluster selection is required")
