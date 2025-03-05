@@ -92,7 +92,6 @@ func InstallDevspace() error {
 		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
-	cmd.Stdout = os.Stdout
 	StartSpinner("Installing Devspace CLI, It will take a few minutes...")
 	if err := cmd.Run(); err != nil {
 		ErrorMessage(fmt.Sprintf("Error installing devspace: %v", err))
@@ -140,7 +139,6 @@ func InstallTaskCLI() error {
 		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
-	cmd.Stdout = os.Stdout
 	StartSpinner("Installing Task CLI, It will take a few minutes...")
 	if err := cmd.Run(); err != nil {
 		ErrorMessage(fmt.Sprintf("Error installing task: %v", err))
@@ -200,7 +198,6 @@ func InstallYq() error {
 		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
-	cmd.Stdout = os.Stdout
 	StartSpinner("Installing Yq CLI, It will take a few minutes...")
 	if err := cmd.Run(); err != nil {
 		ErrorMessage(fmt.Sprintf("Error installing yq: %v", err))
