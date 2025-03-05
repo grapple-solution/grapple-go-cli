@@ -3,7 +3,6 @@ package civo
 import (
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/civo/civogo"
@@ -59,25 +58,16 @@ func createCluster(cmd *cobra.Command, args []string) error {
 		clusterName = result
 	}
 
+	civoAPIKey := getCivoAPIKey()
+
 	if civoRegion == "" {
-		regions := []string{
-			"nyc1",
-			"phx1",
-			"fra1",
-			"lon1",
-		}
+		regions := getCivoRegion(civoAPIKey)
 		result, err := utils.PromptSelect("Select region", regions)
 		if err != nil {
 			utils.ErrorMessage("Region selection is required")
 			return errors.New("region selection is required")
 		}
 		civoRegion = result
-	}
-
-	civoAPIKey = os.Getenv("CIVO_API_TOKEN")
-	if civoAPIKey == "" {
-		utils.ErrorMessage("Civo API key is required, set CIVO_API_TOKEN in your environment variables")
-		return errors.New("civo API key is required, set CIVO_API_TOKEN in your environment variables")
 	}
 
 	utils.InfoMessage("Initializing Civo client...")

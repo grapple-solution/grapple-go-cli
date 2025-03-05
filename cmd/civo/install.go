@@ -384,24 +384,15 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 
 	if !insideCivoCluster {
 		// Get CIVO API key if not provided
-		if civoAPIKey == "" {
-			civoAPIKey = os.Getenv("CIVO_API_TOKEN")
-		}
-		if civoAPIKey == "" {
-			return nil, nil, fmt.Errorf("failed to get CIVO API key form env")
-		}
+		civoAPIKey := getCivoAPIKey()
 
 		// Get CIVO region if not provided
 		if civoRegion == "" {
-			regions := []string{
-				"nyc1",
-				"phx1",
-				"fra1",
-				"lon1",
-			}
-			result, err := utils.PromptSelect("Select CIVO region", regions)
+			regions := getCivoRegion(civoAPIKey)
+			result, err := utils.PromptSelect("Select region", regions)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to select region: %w", err)
+				utils.ErrorMessage("Region selection is required")
+				return nil, nil, fmt.Errorf("region selection is required")
 			}
 			civoRegion = result
 		}
