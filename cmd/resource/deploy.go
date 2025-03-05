@@ -81,7 +81,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Getting Kubernetes config...")
 	restConfig, clientset, err = utils.GetKubernetesConfig()
 	if err != nil {
-		utils.ErrorMessage("Failed to get Kubernetes config: " + err.Error())
+		utils.ErrorMessage("Failed to get Kubernetes config, please run 'grpl <cloud> connect' to connect to your cluster. The cloud can be one of 'civo', 'aws', etc")
 		return err
 	}
 
@@ -134,7 +134,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// 3. Copy a base template file (from GRPL_WORKDIR) to our working file.
+	// 3. Copy a base template file to our working file.
 	if err := prepareTemplateFile(); err != nil {
 		return err
 	}
@@ -307,16 +307,34 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 // prepareTemplateFile copies a base template file from GRPL_WORKDIR into our working file.
 func prepareTemplateFile() error {
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %v", err)
+	}
+
+	// Get the directory containing the executable
+	execDir := filepath.Dir(execPath)
+
+	// Construct template file path relative to executable
 	var src string
 	if GRASTemplate == utils.DB_FILE {
-		src = filepath.Join("template-files", "db-file.yaml")
+		src = filepath.Join(execDir, "template-files", "db-file.yaml")
 	} else {
-		src = filepath.Join("template-files", "db.yaml")
+		src = filepath.Join(execDir, "template-files", "db.yaml")
 	}
+
+	// Try executable directory first
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("failed to read template file %s: %v", src, err)
+		// Fall back to checking relative to current directory
+		localSrc := filepath.Join("template-files", filepath.Base(src))
+		data, err = os.ReadFile(localSrc)
+		if err != nil {
+			return fmt.Errorf("failed to read template file from either %s or %s: %v", src, localSrc, err)
+		}
 	}
+
 	return os.WriteFile(templateFileDest, data, 0644)
 }
 
