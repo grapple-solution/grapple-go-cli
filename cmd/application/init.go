@@ -121,55 +121,97 @@ func validateAndSetProjectName() error {
 	return nil
 }
 func handleDirectoryConflicts() error {
-
-	askedOnce := false
-	for {
-		// Check if directory exists locally
-		if _, err := os.Stat(projectName); os.IsNotExist(err) {
-			// Check if repo exists on GitHub
-			client, err := gh.RESTClient(&api.ClientOptions{
-				AuthToken: githubToken,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to create GitHub client: %w", err)
+	// Check if directory exists locally
+	if _, err := os.Stat(projectName); !os.IsNotExist(err) {
+		utils.InfoMessage(fmt.Sprintf("Directory %s already exists locally", projectName))
+		askedOnce := false
+		for {
+			if !autoConfirm && !askedOnce {
+				confirm, err := utils.PromptConfirm("Would you like to rename the project with an increment?")
+				if err != nil || !confirm {
+					return fmt.Errorf("operation cancelled by user")
+				}
+				askedOnce = true
 			}
 
-			// Get authenticated user
-			var user struct {
-				Login string `json:"login"`
+			parts := strings.Split(projectName, "-")
+			lastPart := parts[len(parts)-1]
+			if num, err := strconv.Atoi(lastPart); err == nil {
+				parts[len(parts)-1] = strconv.Itoa(num + 1)
+			} else {
+				parts = append(parts, "1")
 			}
-			err = client.Get("user", &user)
-			if err != nil {
-				return fmt.Errorf("failed to get GitHub user: %w", err)
-			}
+			projectName = strings.Join(parts, "-")
+			utils.InfoMessage(fmt.Sprintf("Trying new project name: %s", projectName))
 
-			utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
-			response := struct{ Name string }{}
-			err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
-			if err != nil { // Repo doesn't exist
+			if _, err := os.Stat(projectName); os.IsNotExist(err) {
 				break
 			}
 		}
-
-		utils.InfoMessage(fmt.Sprintf("Directory or repository %s already exists", projectName))
-		if !autoConfirm && !askedOnce {
-			confirm, err := utils.PromptConfirm("Would you like to rename the project with an increment?")
-			if err != nil || !confirm {
-				return fmt.Errorf("operation cancelled by user")
-			}
-			askedOnce = true
-		}
-
-		parts := strings.Split(projectName, "-")
-		lastPart := parts[len(parts)-1]
-		if num, err := strconv.Atoi(lastPart); err == nil {
-			parts[len(parts)-1] = strconv.Itoa(num + 1)
-		} else {
-			parts = append(parts, "1")
-		}
-		projectName = strings.Join(parts, "-")
-		utils.InfoMessage(fmt.Sprintf("Trying new project name: %s", projectName))
+		return nil
 	}
+
+	// Check if repo exists on GitHub
+	client, err := gh.RESTClient(&api.ClientOptions{
+		AuthToken: githubToken,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub client: %w", err)
+	}
+
+	// Get authenticated user
+	var user struct {
+		Login string `json:"login"`
+	}
+	err = client.Get("user", &user)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub user: %w", err)
+	}
+
+	utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
+	response := struct{ Name string }{}
+	err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+	if err == nil { // Repo exists
+		if !autoConfirm {
+			result, err := utils.PromptSelect(
+				"Project with this name already exists on GitHub. What would you like to do?",
+				[]string{"clone existing", "create new"},
+			)
+			if err != nil {
+				return fmt.Errorf("prompt failed: %w", err)
+			}
+
+			if result == "clone existing" {
+				return nil // Will be handled by createOrCloneRepository()
+			}
+		}
+
+		// Find non-conflicting name for new project
+		askedOnce := false
+		for {
+			if !autoConfirm && !askedOnce {
+				utils.InfoMessage(fmt.Sprintf("Will try to find a non-conflicting name for %s", projectName))
+				askedOnce = true
+			}
+
+			parts := strings.Split(projectName, "-")
+			lastPart := parts[len(parts)-1]
+			if num, err := strconv.Atoi(lastPart); err == nil {
+				parts[len(parts)-1] = strconv.Itoa(num + 1)
+			} else {
+				parts = append(parts, "1")
+			}
+			projectName = strings.Join(parts, "-")
+			utils.InfoMessage(fmt.Sprintf("Trying new project name: %s", projectName))
+
+			// Check if new name exists
+			err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+			if err != nil { // Name is available
+				break
+			}
+		}
+	}
+
 	return nil
 }
 func authenticateGitHub() error {
@@ -190,9 +232,19 @@ func createOrCloneRepository() error {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
+	// Get authenticated user
+	var user struct {
+		Login string `json:"login"`
+	}
+	err = client.Get("user", &user)
+	if err != nil {
+		return fmt.Errorf("failed to get GitHub user: %w", err)
+	}
+
 	// Check if repo exists
 	response := struct{ Name string }{}
-	err = client.Get(fmt.Sprintf("repos/%s", projectName), &response)
+	utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
+	err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
 	repoExists := err == nil
 
 	if repoExists {
