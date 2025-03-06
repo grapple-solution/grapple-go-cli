@@ -81,7 +81,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Getting Kubernetes config...")
 	restConfig, clientset, err = utils.GetKubernetesConfig()
 	if err != nil {
-		utils.ErrorMessage("Failed to get Kubernetes config, please run 'grpl <cloud> connect' to connect to your cluster. The cloud can be one of 'civo', 'aws', etc")
+		utils.ErrorMessage("Failed to get Kubernetes config: " + err.Error())
 		return err
 	}
 
@@ -305,36 +305,44 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// prepareTemplateFile copies a base template file from GRPL_WORKDIR into our working file.
-func prepareTemplateFile() error {
-	// Get the executable path
+func getResourcePath(subdir string) (string, error) {
+	// Get the directory where the executable is running
 	execPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to get executable path: %v", err)
+		return "", fmt.Errorf("failed to get executable path: %v", err)
 	}
 
-	// Get the directory containing the executable
-	execDir := filepath.Dir(execPath)
+	// Resolve the directory where Homebrew installed the CLI
+	installDir := filepath.Dir(filepath.Dir(execPath)) // Move up one level from bin/
 
-	// Construct template file path relative to executable
+	// Construct the path to the requested resource
+	resourcePath := filepath.Join(installDir, "share", "grapple-go-cli", subdir)
+
+	// Ensure the directory exists
+	if _, err := os.Stat(resourcePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("resource path does not exist: %s", resourcePath)
+	}
+
+	return resourcePath, nil
+}
+
+func prepareTemplateFile() error {
+	templateDir, err := getResourcePath("template-files")
+	if err != nil {
+		return err
+	}
+
 	var src string
 	if GRASTemplate == utils.DB_FILE {
-		src = filepath.Join(execDir, "template-files", "db-file.yaml")
+		src = filepath.Join(templateDir, "db-file.yaml")
 	} else {
-		src = filepath.Join(execDir, "template-files", "db.yaml")
+		src = filepath.Join(templateDir, "db.yaml")
 	}
 
-	// Try executable directory first
 	data, err := os.ReadFile(src)
 	if err != nil {
-		// Fall back to checking relative to current directory
-		localSrc := filepath.Join("template-files", filepath.Base(src))
-		data, err = os.ReadFile(localSrc)
-		if err != nil {
-			return fmt.Errorf("failed to read template file from either %s or %s: %v", src, localSrc, err)
-		}
+		return fmt.Errorf("failed to read template file %s: %v", src, err)
 	}
-
 	return os.WriteFile(templateFileDest, data, 0644)
 }
 
@@ -1367,8 +1375,13 @@ func updateTemplateForDataSourceIncaseOfDbFile() error {
 }
 
 func createInternalDB() error {
-	// Copy the manifest file
-	src := filepath.Join("files", "db.yaml")
+
+	filesDir, err := getResourcePath("files")
+	if err != nil {
+		return err
+	}
+
+	src := filepath.Join(filesDir, "db.yaml")
 	srcData, err := os.ReadFile(src)
 	if err != nil {
 		return fmt.Errorf("failed to read source file: %v", err)
