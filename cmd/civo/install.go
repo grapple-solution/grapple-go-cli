@@ -117,13 +117,20 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	// // 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
-	// if !isResolvable(extractDomain(grappleDNS)) {
-	// 	utils.InfoMessage("Domain not resolvable. Creating DNS upsert job (placeholder).")
-	// 	if err := createDnsRoute53UpsertJob(kubeClient, grappleDNS, clusterIP); err != nil {
-	// 		utils.ErrorMessage("Failed to create route53 upsert job: " + err.Error())
-	// 	}
-	// }
+	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
+	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
+		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
+		code := utils.GenerateRandomString()
+		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
+			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
+			return err
+		}
+		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
+		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
+			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
+			return err
+		}
+	}
 
 	prepareValuesFile()
 
@@ -1390,62 +1397,6 @@ func waitForGrsfIntegration(restConfig *rest.Config) error {
 
 	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
 }
-
-// // -----------------------------------------------------------------------------
-// // DNS Upsert Job Logic (placeholder approach using client-go to create a Job)
-// // -----------------------------------------------------------------------------
-// func createDnsRoute53UpsertJob(kubeClient apiv1.Interface, domain, ip string) error {
-// 	fmt.Println("ip address", ip)
-// 	jobsClient := kubeClient.BatchV1().Jobs("default")
-// 	job := &batchv1.Job{
-// 		ObjectMeta: v1.ObjectMeta{
-// 			Name: fmt.Sprintf("grpl-dns-aws-route53-upsert-%s", domain),
-// 		},
-// 		Spec: batchv1.JobSpec{
-// 			Template: corev1.PodTemplateSpec{
-// 				ObjectMeta: v1.ObjectMeta{},
-// 				Spec: corev1.PodSpec{
-// 					RestartPolicy: corev1.RestartPolicyNever,
-// 					Containers: []corev1.Container{
-// 						{
-// 							Name:  "dns-upsert",
-// 							Image: "grpl/dns-aws-route53-upsert",
-// 							Env: []corev1.EnvVar{
-// 								{Name: "GRAPPLE_DNS", Value: domain},
-// 								{Name: "CIVO_MASTER_IP", Value: ip},
-// 							},
-// 						},
-// 					},
-// 				},
-// 			},
-// 		},
-// 	}
-// 	_, err := jobsClient.Create(context.TODO(), job, v1.CreateOptions{})
-// 	return err
-// }
-
-// func deleteDnsRoute53UpsertJob(kubeClient apiv1.Interface, domain string) {
-// 	jobsClient := kubeClient.BatchV1().Jobs("default")
-// 	name := fmt.Sprintf("grpl-dns-aws-route53-upsert-%s", domain)
-// 	_ = jobsClient.Delete(context.TODO(), name, v1.DeleteOptions{})
-// }
-
-// -----------------------------------------------------------------------------
-// Additional Helpers
-// -----------------------------------------------------------------------------
-// installKubeblocks installs Kubeblocks using Helm
-
-// // isResolvable checks if domain name is resolvable
-// func isResolvable(domain string) bool {
-// 	addrs, err := net.LookupHost(domain)
-// 	return err == nil && len(addrs) > 0
-// }
-
-// func extractDomain(gdns string) string {
-// 	// If your script had logic to parse subdomain, do it here.
-// 	// For simplicity, we just return the entire string.
-// 	return gdns
-// }
 
 // func getEnv(key, defVal string) string {
 // 	val := strings.TrimSpace(SystemGetenv(key))

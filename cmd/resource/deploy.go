@@ -305,29 +305,8 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getResourcePath(subdir string) (string, error) {
-	// Get the directory where the executable is running
-	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %v", err)
-	}
-
-	// Resolve the directory where Homebrew installed the CLI
-	installDir := filepath.Dir(filepath.Dir(execPath)) // Move up one level from bin/
-
-	// Construct the path to the requested resource
-	resourcePath := filepath.Join(installDir, "share", "grapple-go-cli", subdir)
-
-	// Ensure the directory exists
-	if _, err := os.Stat(resourcePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("resource path does not exist: %s", resourcePath)
-	}
-
-	return resourcePath, nil
-}
-
 func prepareTemplateFile() error {
-	templateDir, err := getResourcePath("template-files")
+	templateDir, err := utils.GetResourcePath("template-files")
 	if err != nil {
 		return err
 	}
@@ -1376,7 +1355,7 @@ func updateTemplateForDataSourceIncaseOfDbFile() error {
 
 func createInternalDB() error {
 
-	filesDir, err := getResourcePath("files")
+	filesDir, err := utils.GetResourcePath("files")
 	if err != nil {
 		return err
 	}

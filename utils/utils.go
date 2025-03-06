@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/manifoldco/promptui"
+	"golang.org/x/exp/rand"
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -26,8 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -479,4 +484,254 @@ func CreateExternalDBSecret(client *kubernetes.Clientset, deploymentNamespace st
 		_, err = client.CoreV1().Secrets(deploymentNamespace).Update(context.TODO(), newSecret, v1.UpdateOptions{})
 	}
 	return err
+}
+
+func GetResourcePath(subdir string) (string, error) {
+	// Get the directory where the executable is running
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get executable path: %v", err)
+	}
+
+	// Resolve the directory where Homebrew installed the CLI
+	installDir := filepath.Dir(filepath.Dir(execPath)) // Move up one level from bin/
+
+	// Construct the path to the requested resource
+	resourcePath := filepath.Join(installDir, "share", "grapple-go-cli", subdir)
+
+	// Ensure the directory exists
+	if _, err := os.Stat(resourcePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("resource path does not exist: %s", resourcePath)
+	}
+
+	return resourcePath, nil
+}
+
+func SetupCodeVerificationServer(restConfig *rest.Config, code, completeDomain, cloud string) error {
+
+	// Create Kubernetes clientset from rest config
+	client, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Create verification-server namespace
+	namespace := &corev1.Namespace{
+		ObjectMeta: v1.ObjectMeta{
+			Name: "verification-server",
+		},
+	}
+	_, err = client.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
+	if err != nil && !errors.IsAlreadyExists(err) {
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+
+	// Get deployment yaml path
+	deploymentPath, err := GetResourcePath("files")
+	if err != nil {
+		return fmt.Errorf("failed to get deployment path: %w", err)
+	}
+	// deploymentPath := "files"
+	src := filepath.Join(deploymentPath, "code-verification-server-deployment.yaml")
+	// Read deployment yaml
+	yamlFile, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("failed to read deployment yaml: %w", err)
+	}
+
+	// Replace variables in yaml
+	yamlStr := string(yamlFile)
+	yamlStr = strings.ReplaceAll(yamlStr, "$CLUSTER_ADDRESS", "verification-server."+completeDomain)
+
+	// Parse yaml into k8s objects
+	decoder := k8syaml.NewYAMLOrJSONDecoder(strings.NewReader(yamlStr), 100)
+	var objects []runtime.Object
+
+	for {
+		obj := &unstructured.Unstructured{}
+		if err := decoder.Decode(obj); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to decode yaml: %w", err)
+		}
+		objects = append(objects, obj)
+	}
+
+	// Modify ingress for AWS if needed
+	if cloud == "aws" {
+		for _, obj := range objects {
+			if obj.GetObjectKind().GroupVersionKind().Kind == "Ingress" {
+				unstructuredObj := obj.(*unstructured.Unstructured)
+				if err := unstructured.SetNestedField(unstructuredObj.Object, "traefik", "spec", "ingressClassName"); err != nil {
+					return fmt.Errorf("failed to set ingressClassName: %w", err)
+				}
+			}
+		}
+	}
+
+	// Apply objects
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	for _, obj := range objects {
+		gvk := obj.GetObjectKind().GroupVersionKind()
+		apiResource, err := getAPIResource(client.Discovery(), gvk)
+		if err != nil {
+			return fmt.Errorf("failed to get API resource: %w", err)
+		}
+
+		unstructuredObj := obj.(*unstructured.Unstructured)
+		_, err = dynamicClient.Resource(*apiResource).Namespace("verification-server").Create(context.TODO(), unstructuredObj, v1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				// If resource exists, try to update it instead
+				_, err = dynamicClient.Resource(*apiResource).Namespace("verification-server").Update(context.TODO(), unstructuredObj, v1.UpdateOptions{})
+				if err != nil {
+					return fmt.Errorf("failed to update resource: %w", err)
+				}
+			} else {
+				return fmt.Errorf("failed to create resource: %w", err)
+			}
+		}
+	}
+
+	// Wait for deployment to be ready
+	InfoMessage("Waiting for code verification server deployment to be ready")
+	err = wait.PollImmediate(5*time.Second, 300*time.Second, func() (bool, error) {
+		deployment, err := client.AppsV1().Deployments("verification-server").Get(context.TODO(), "code-verification-server", v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return deployment.Status.AvailableReplicas == deployment.Status.Replicas, nil
+	})
+	if err != nil {
+		return fmt.Errorf("timeout waiting for deployment: %w", err)
+	}
+
+	// Set CODE env var
+	deployment, err := client.AppsV1().Deployments("verification-server").Get(context.TODO(), "code-verification-server", v1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment: %w", err)
+	}
+
+	for i := range deployment.Spec.Template.Spec.Containers {
+		deployment.Spec.Template.Spec.Containers[i].Env = append(
+			deployment.Spec.Template.Spec.Containers[i].Env,
+			corev1.EnvVar{Name: "CODE", Value: code},
+		)
+	}
+
+	_, err = client.AppsV1().Deployments("verification-server").Update(context.TODO(), deployment, v1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update deployment: %w", err)
+	}
+
+	InfoMessage("Code verification server is ready")
+
+	return nil
+}
+
+func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, externalIP, hostedZoneID, recordType string) error {
+	// Create Kubernetes clientset from rest config
+	client, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Delete existing pod if exists
+	err = client.CoreV1().Pods("default").Delete(context.TODO(), "grpl-dns-route53-upsert", v1.DeleteOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete existing pod: %w", err)
+	}
+
+	// Create DNS update pod
+	pod := &corev1.Pod{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "grpl-dns-route53-upsert",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{
+				{
+					Name:  "dns-upsert",
+					Image: "zaialpha/grpl-route53-upsert:latest",
+					Env: []corev1.EnvVar{
+						{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
+						{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
+						{Name: "GRPL_TARGET", Value: externalIP},
+						{Name: "TYPE", Value: recordType},
+						{Name: "CODE", Value: code},
+						{Name: "API_URL", Value: apiURL},
+					},
+				},
+			},
+		},
+	}
+
+	InfoMessage("Deploying grpl-dns-route53-upsert")
+	_, err = client.CoreV1().Pods("default").Create(context.TODO(), pod, v1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create DNS update pod: %w", err)
+	}
+
+	// Wait for pod completion
+	InfoMessage("Waiting for DNS update pod to complete")
+	err = wait.PollImmediate(2*time.Second, 90*time.Second, func() (bool, error) {
+		pod, err := client.CoreV1().Pods("default").Get(context.TODO(), "grpl-dns-route53-upsert", v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		switch pod.Status.Phase {
+		case corev1.PodSucceeded:
+			SuccessMessage("DNS update completed successfully")
+			return true, nil
+		case corev1.PodFailed:
+			return false, fmt.Errorf("DNS update failed")
+		default:
+			return false, nil
+		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("error waiting for DNS update pod: %w", err)
+	}
+
+	return nil
+}
+
+// Helper function to get APIResource for dynamic client
+func getAPIResource(discovery discovery.DiscoveryInterface, gvk schema.GroupVersionKind) (*schema.GroupVersionResource, error) {
+	resources, err := discovery.ServerResourcesForGroupVersion(gvk.GroupVersion().String())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range resources.APIResources {
+		if r.Kind == gvk.Kind {
+			return &schema.GroupVersionResource{
+				Group:    gvk.Group,
+				Version:  gvk.Version,
+				Resource: r.Name,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("resource not found for GroupVersionKind %v", gvk)
+}
+
+// GenerateRandomString generates a random 32 character hex string
+func GenerateRandomString() string {
+	bytes := make([]byte, 16) // 16 bytes = 32 hex characters
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to less secure but still random method if crypto/rand fails
+		for i := range bytes {
+			bytes[i] = byte(rand.Intn(256))
+		}
+	}
+	return hex.EncodeToString(bytes)
 }

@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-verification-server
+  namespace: verification-server
+  labels:
+    app: code-verification-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: code-verification-server
+  template:
+    metadata:
+      labels:
+        app: code-verification-server
+    spec:
+      containers:
+      - name: code-verification-server
+        image: zaialpha/code-verification:latest
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-verification-server-service
+  namespace: verification-server
+spec:
+  selector:
+    app: code-verification-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-verification-server-ingress
+  namespace: verification-server
+spec:
+  rules:
+  - host: $CLUSTER_ADDRESS
+    http:
+      paths:
+      - path: /
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: code-verification-server-service
+            port:
+              number: 80
+
