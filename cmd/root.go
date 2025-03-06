@@ -14,7 +14,7 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "grpl",
+	Use:   "grapple",
 	Short: "A CLI tool for managing Civo and Kubernetes clusters",
 	Long:  "Grapple CLI is a tool for managing cloud and Kubernetes operations.",
 }
