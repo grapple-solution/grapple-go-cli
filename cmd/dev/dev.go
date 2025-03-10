@@ -15,8 +15,9 @@ import (
 
 // DevCmd represents the dev command
 var DevCmd = &cobra.Command{
-	Use:   "dev",
-	Short: "Development commands for Grapple",
+	Use:     "dev",
+	Aliases: []string{"d"},
+	Short:   "Development commands for Grapple",
 	Long: `Development commands for Grapple including:
 - devspace dev: Start development environment
 - devspace ns: Set namespace

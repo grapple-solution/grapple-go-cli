@@ -20,8 +20,9 @@ import (
 
 // UninstallCmd represents the uninstall command
 var UninstallCmd = &cobra.Command{
-	Use:   "uninstall",
-	Short: "Uninstall Grapple from the cluster",
+	Use:     "uninstall",
+	Aliases: []string{"u"},
+	Short:   "Uninstall Grapple from the cluster",
 	Long: `Uninstall command removes all Grapple components and resources from the cluster.
 This will completely remove all traces of Grapple installation including:
 - All Grapple namespaces and resources

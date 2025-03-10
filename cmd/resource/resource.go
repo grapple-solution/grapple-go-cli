@@ -11,8 +11,9 @@ import (
 
 // resourceCmd represents the resource command
 var ResourceCmd = &cobra.Command{
-	Use:   "resource",
-	Short: "Manage GrappleApplicationSet resources",
+	Use:     "resource",
+	Aliases: []string{"r"},
+	Short:   "Manage GrappleApplicationSet resources",
 	Long: `The resource command allows you to work with GrappleApplicationSet resources.
 
 You can use this command to:

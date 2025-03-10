@@ -12,10 +12,11 @@ import (
 
 // CreateCmd represents the create command
 var CreateCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a Kubernetes cluster in Civo",
-	Long:  "Create a new Kubernetes cluster on the Civo cloud platform with specified configuration.",
-	RunE:  createCluster,
+	Use:     "create",
+	Aliases: []string{"c"},
+	Short:   "Create a Kubernetes cluster in Civo",
+	Long:    "Create a new Kubernetes cluster on the Civo cloud platform with specified configuration.",
+	RunE:    createCluster,
 }
 
 // Initialize flags
@@ -116,6 +117,21 @@ func createCluster(cmd *cobra.Command, args []string) error {
 	}
 
 	utils.SuccessMessage(fmt.Sprintf("Cluster '%s' is ready and kubectl is configured.", clusterName))
+
+	// Prompt user to install Grapple
+	installNow, err := utils.PromptConfirm("Would you like to install Grapple on this cluster now?")
+	if err != nil {
+		return err
+	}
+
+	if installNow {
+		utils.InfoMessage("Starting Grapple installation...")
+		// Run install command
+		if err := runInstallStepByStep(cmd, args); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to install Grapple: %v", err))
+			return err
+		}
+	}
 
 	return nil
 }

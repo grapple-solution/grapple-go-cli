@@ -15,10 +15,11 @@ import (
 
 // renderCmd represents the render command
 var RenderCmd = &cobra.Command{
-	Use:   "render",
-	Short: "Render a GrappleApplicationSet resource without deploying it",
-	Long:  `Render command creates a GrappleApplicationSet resource YAML file without deploying it to your cluster.`,
-	RunE:  runRender,
+	Use:     "render",
+	Aliases: []string{"r"},
+	Short:   "Render a GrappleApplicationSet resource without deploying it",
+	Long:    `Render command creates a GrappleApplicationSet resource YAML file without deploying it to your cluster.`,
+	RunE:    runRender,
 }
 
 func init() {

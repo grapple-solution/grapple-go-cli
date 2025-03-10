@@ -35,8 +35,9 @@ var (
 
 // DeployCmd represents the deploy command
 var DeployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Deploy Grapple example resources",
+	Use:     "deploy",
+	Aliases: []string{"d"},
+	Short:   "Deploy Grapple example resources",
 	Long: `Deploy Grapple example resources from templates.
 Available templates:
 - db-file

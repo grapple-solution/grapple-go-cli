@@ -18,8 +18,9 @@ import (
 
 // InitCmd represents the init command
 var InitCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize a new Grapple application",
+	Use:     "init",
+	Aliases: []string{"i"},
+	Short:   "Initialize a new Grapple application",
 	Long: `Initialize a new Grapple application from a template.
 This command creates a new project directory and sets up the initial project structure.`,
 	RunE: initializeApplication,

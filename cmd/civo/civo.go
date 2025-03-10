@@ -6,9 +6,10 @@ import (
 
 // CivoCmd represents the civo command
 var CivoCmd = &cobra.Command{
-	Use:   "civo",
-	Short: "Civo cloud operations",
-	Long:  "Commands related to operations on the Civo cloud platform.",
+	Use:     "civo",
+	Aliases: []string{"c"},
+	Short:   "Civo cloud operations",
+	Long:    "Commands related to operations on the Civo cloud platform.",
 }
 
 func init() {

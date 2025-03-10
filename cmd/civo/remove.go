@@ -16,8 +16,9 @@ import (
 
 // RemoveCmd represents the remove command
 var RemoveCmd = &cobra.Command{
-	Use:   "remove",
-	Short: "Remove all traces of the cluster from the supplier account",
+	Use:     "remove",
+	Aliases: []string{"r"},
+	Short:   "Remove all traces of the cluster from the supplier account",
 	Long: `Remove command will clean up and delete all resources associated with 
 the Kubernetes cluster from the supplier account
 

@@ -19,8 +19,9 @@ import (
 
 // UpdateCmd represents the update command
 var UpdateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update a Grapple application from template",
+	Use:     "update",
+	Aliases: []string{"u"},
+	Short:   "Update a Grapple application from template",
 	Long: `Update a Grapple application by syncing differences from the template repository.
 This command checks for and applies updates to configuration files and documentation.`,
 	RunE: updateApplication,
@@ -29,7 +30,6 @@ This command checks for and applies updates to configuration files and documenta
 func init() {
 	UpdateCmd.Flags().StringVarP(&grappleTemplate, "grapple-template", "", "grapple-solutions/grapple-template", "Template repository to use")
 	UpdateCmd.Flags().StringVarP(&githubToken, "github-token", "", "", "GitHub token for authentication")
-
 }
 
 func updateApplication(cmd *cobra.Command, args []string) error {

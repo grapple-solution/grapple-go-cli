@@ -18,8 +18,9 @@ import (
 
 // connectCmd represents the connect command
 var ConnectCmd = &cobra.Command{
-	Use:   "connect",
-	Short: "Connect to an existing Civo Kubernetes cluster",
+	Use:     "connect",
+	Aliases: []string{"conn"},
+	Short:   "Connect to an existing Civo Kubernetes cluster",
 	Long: `Connect to an existing Kubernetes cluster on Civo cloud platform and configure kubectl.
 This will update your kubeconfig file to allow kubectl access to the cluster.`,
 	RunE: connectToCluster,
@@ -118,6 +119,7 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 	}
 
 	utils.SuccessMessage(fmt.Sprintf("Successfully connected to cluster '%s'", clusterName))
+
 	return nil
 }
 

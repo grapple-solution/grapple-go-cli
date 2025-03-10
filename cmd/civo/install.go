@@ -40,8 +40,9 @@ import (
 
 // InstallCmd is your Cobra command
 var InstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install Grapple on a Civo Kubernetes cluster (step by step)",
+	Use:     "install",
+	Aliases: []string{"i"},
+	Short:   "Install Grapple on a Civo Kubernetes cluster (step by step)",
 	Long: `Installs Grapple components (grsf-init, grsf, grsf-config, grsf-integration) 
 sequentially, waiting for required resources in between, mirroring the step-by-step logic of your Bash script.`,
 	RunE: runInstallStepByStep,

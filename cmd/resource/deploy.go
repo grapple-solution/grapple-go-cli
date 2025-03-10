@@ -36,8 +36,9 @@ import (
 
 // DeployCmd represents the deploy command.
 var DeployCmd = &cobra.Command{
-	Use:   "deploy",
-	Short: "Deploy a GrappleApplicationSet resource to your cluster",
+	Use:     "deploy",
+	Aliases: []string{"d"},
+	Short:   "Deploy a GrappleApplicationSet resource to your cluster",
 	Long: `Deploy command creates and applies a GrappleApplicationSet resource to your Kubernetes cluster.
 
 This command will:
