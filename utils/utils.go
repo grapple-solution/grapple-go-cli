@@ -218,9 +218,9 @@ func InstallKubeBlocksOnCluster(
 				if err != nil {
 					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
 				}
-				InfoMessage("Removed failed KubeBlocks release, will attempt fresh install")
+				// InfoMessage("Removed failed KubeBlocks release, will attempt fresh install")
 			} else {
-				InfoMessage("KubeBlocks release already exists, skipping installation")
+				// InfoMessage("KubeBlocks release already exists, skipping installation")
 				return nil
 			}
 			break
@@ -245,14 +245,14 @@ func InstallKubeBlocksOnCluster(
 			if err != nil {
 				return fmt.Errorf("failed to create kb-system namespace: %w", err)
 			}
-			InfoMessage("Created kb-system namespace")
+			// InfoMessage("Created kb-system namespace")
 		} else {
 			return fmt.Errorf("failed to check kb-system namespace: %w", err)
 		}
 	}
 
 	// 1. Create CRDs first
-	InfoMessage("Installing KubeBlocks CRDs...")
+	// InfoMessage("Installing KubeBlocks CRDs...")
 
 	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.2/kubeblocks_crds.yaml"
 
@@ -282,7 +282,7 @@ func InstallKubeBlocksOnCluster(
 
 		// Skip empty documents
 		if len(obj.Object) == 0 {
-			InfoMessage("Skipping empty document")
+			// InfoMessage("Skipping empty document")
 			continue
 		}
 
@@ -297,7 +297,7 @@ func InstallKubeBlocksOnCluster(
 			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
 		}
 
-		InfoMessage(fmt.Sprintf("Created kubeblocks CRDs %s", obj.GetName()))
+		// InfoMessage(fmt.Sprintf("Created kubeblocks CRDs %s", obj.GetName()))
 	}
 	// Wait a bit for CRDs to be established
 	time.Sleep(10 * time.Second)
@@ -341,7 +341,7 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to download repository index: %w", err)
 	}
 
-	InfoMessage("Added and updated kubeblocks helm repository")
+	// InfoMessage("Added and updated kubeblocks helm repository")
 
 	// 4. Create a Helm install client
 	installClient := action.NewInstall(helmCfg)
@@ -363,8 +363,8 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
 	}
 
-	InfoMessage(fmt.Sprintf("release name: %s", installClient.ReleaseName))
-	InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
+	// InfoMessage(fmt.Sprintf("release name: %s", installClient.ReleaseName))
+	// InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
 
 	// Set values to ensure installation in kb-system namespace
 	values := map[string]interface{}{}
@@ -372,7 +372,7 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
 	}
 
-	SuccessMessage("KubeBlocks installed successfully in namespace kb-system!")
+	// SuccessMessage("KubeBlocks installed successfully in namespace kb-system!")
 	return nil
 }
 
