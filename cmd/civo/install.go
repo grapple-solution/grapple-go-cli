@@ -50,19 +50,19 @@ sequentially, waiting for required resources in between, mirroring the step-by-s
 
 // init sets up flags for install
 func init() {
-	InstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "", "Version of Grapple to install")
-	InstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
+	InstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install (default: latest)")
+	InstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
 	InstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	InstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
 	InstallCmd.Flags().StringVar(&civoClusterID, "civo-cluster-id", "", "Civo cluster ID")
 	InstallCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
 	InstallCmd.Flags().StringVar(&clusterIP, "cluster-ip", "", "Cluster IP")
-	InstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple")
-	InstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name")
-	InstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background")
-	InstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end")
-	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage")
-	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
+	InstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple (default: {cluster-name}.grapple-solutions.com)")
+	InstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name (default: grapple-solutions)")
+	InstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background (default: false)")
+	InstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end (default: false)")
+	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
+	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
 
 }
 

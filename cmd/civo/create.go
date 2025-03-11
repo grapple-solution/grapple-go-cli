@@ -25,11 +25,11 @@ func init() {
 	CreateCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster")
 	CreateCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	CreateCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
-	CreateCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "Skip confirmation prompts (default: true)")
-	CreateCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", true, "Install Kubeblocks (default: true)")
+	CreateCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
 	CreateCmd.Flags().StringVar(&applications, "applications", "traefik2-nodeport,civo-cluster-autoscaler,metrics-server", "Applications to install")
 	CreateCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes (default: 3)")
 	CreateCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size (default: g4s.kube.medium)")
+	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
 }
 
 // Function to handle the "create" command logic
@@ -97,41 +97,28 @@ func createCluster(cmd *cobra.Command, args []string) error {
 		utils.ErrorMessage(fmt.Sprintf("Failed to create cluster: %v", err))
 		return err
 	}
-	utils.SuccessMessage(fmt.Sprintf("Cluster '%s' creation initiated.", cluster.Name))
+	utils.SuccessMessage(fmt.Sprintf("Cluster '%s' creation initiated, it will be ready in a few minutes", cluster.Name))
 
-	// Wait for cluster readiness
-	utils.InfoMessage(fmt.Sprintf("Waiting for cluster '%s' to be ready...", cluster.Name))
-	if err := waitForClusterReady(client, cluster); err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Cluster '%s' is not ready: %v", cluster.Name, err))
-		return err
-	}
-
-	// sleep for 20 seconds to ensure cluster is fully registered
-	time.Sleep(20 * time.Second)
-
-	// Instead of duplicating connection logic, use the connect command
-	err = connectToCluster(cmd, args)
-	if err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-		return err
-	}
-
-	utils.SuccessMessage(fmt.Sprintf("Cluster '%s' is ready and kubectl is configured.", clusterName))
-
-	// Prompt user to install Grapple
-	installNow, err := utils.PromptConfirm("Would you like to install Grapple on this cluster now?")
-	if err != nil {
-		return err
-	}
-
-	if installNow {
-		utils.InfoMessage("Starting Grapple installation...")
-		installKubeblocks = true
-		// Run install command
-		if err := runInstallStepByStep(cmd, args); err != nil {
-			utils.ErrorMessage(fmt.Sprintf("Failed to install Grapple: %v", err))
+	if waitForReady {
+		// Wait for cluster readiness
+		utils.InfoMessage(fmt.Sprintf("Waiting for cluster '%s' to be ready...", cluster.Name))
+		if err := waitForClusterReady(client, cluster); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Cluster '%s' is not ready: %v", cluster.Name, err))
 			return err
 		}
+
+		// sleep for 20 seconds to ensure cluster is fully registered
+		time.Sleep(20 * time.Second)
+
+		// Instead of duplicating connection logic, use the connect command
+		err = connectToCluster(cmd, args)
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+
+		utils.SuccessMessage(fmt.Sprintf("Cluster '%s' is ready and kubectl is configured.", clusterName))
+
 	}
 
 	return nil
