@@ -41,6 +41,7 @@ func init() {
 func runCreateInstall(cmd *cobra.Command, args []string) error {
 	// First run create with waitForReady=true
 	waitForReady = true // Force wait for cluster to be ready
+	connectToCivoCluster = true
 	err := createCluster(cmd, args)
 	if err != nil {
 		utils.ErrorMessage(fmt.Sprintf("Failed to create cluster: %v", err))

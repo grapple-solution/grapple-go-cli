@@ -111,10 +111,12 @@ func createCluster(cmd *cobra.Command, args []string) error {
 		time.Sleep(20 * time.Second)
 
 		// Instead of duplicating connection logic, use the connect command
-		err = connectToCluster(cmd, args)
-		if err != nil {
-			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-			return err
+		if connectToCivoCluster {
+			err = connectToCluster(cmd, args)
+			if err != nil {
+				utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+				return err
+			}
 		}
 
 		utils.SuccessMessage(fmt.Sprintf("Cluster '%s' is ready and kubectl is configured.", clusterName))

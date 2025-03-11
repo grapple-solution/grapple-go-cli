@@ -64,6 +64,10 @@ const (
 	providerClusterTypeCivo = "CIVO"
 )
 
+var (
+	connectToCivoCluster = true
+)
+
 // Wait for the cluster to be ready
 func waitForClusterReady(client *civogo.Client, cluster *civogo.KubernetesCluster) error {
 	endTime := time.Now().Add(5 * time.Minute)
