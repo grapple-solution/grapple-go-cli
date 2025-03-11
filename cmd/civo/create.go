@@ -126,6 +126,7 @@ func createCluster(cmd *cobra.Command, args []string) error {
 
 	if installNow {
 		utils.InfoMessage("Starting Grapple installation...")
+		installKubeblocks = true
 		// Run install command
 		if err := runInstallStepByStep(cmd, args); err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to install Grapple: %v", err))

@@ -634,6 +634,38 @@ func SetupCodeVerificationServer(restConfig *rest.Config, code, completeDomain, 
 	return nil
 }
 
+func RemoveCodeVerificationServer(restConfig *rest.Config) error {
+	InfoMessage("Removing code verification server...")
+
+	// Create Kubernetes clientset from rest config
+	client, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Delete the verification-server namespace and all resources in it
+	err = client.CoreV1().Namespaces().Delete(context.TODO(), "verification-server", v1.DeleteOptions{})
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete verification-server namespace: %w", err)
+	}
+
+	// Wait for namespace deletion
+	InfoMessage("Waiting for verification server namespace to be deleted")
+	err = wait.PollImmediate(5*time.Second, 300*time.Second, func() (bool, error) {
+		_, err := client.CoreV1().Namespaces().Get(context.TODO(), "verification-server", v1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("timeout waiting for namespace deletion: %w", err)
+	}
+
+	InfoMessage("Code verification server has been removed")
+	return nil
+}
+
 func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, externalIP, hostedZoneID, recordType string) error {
 	// Create Kubernetes clientset from rest config
 	client, err := kubernetes.NewForConfig(restConfig)
