@@ -12,7 +12,7 @@ import (
 // applicationCmd represents the application command
 var ApplicationCmd = &cobra.Command{
 	Use:     "application",
-	Aliases: []string{"a"},
+	Aliases: []string{"a", "app"},
 	Short:   "Initialize and manage Grapple applications",
 	Long: `The application command allows you to initialize and manage Grapple applications.
 It provides functionality to create new projects from templates and set up development environments.`,

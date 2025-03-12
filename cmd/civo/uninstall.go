@@ -36,6 +36,7 @@ func init() {
 	UninstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, uninstalls grapple from the currently connected Civo cluster. If false, prompts for cluster name and civo region and removes grapple from the specified cluster. Default value of auto-confirm is true")
 	UninstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	UninstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
+	UninstallCmd.Flags().BoolVarP(&skipConfirmation, "yes", "y", false, "Skip confirmation prompt before uninstalling")
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
@@ -52,6 +53,19 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}()
 
 	logOnCliAndFileStart()
+
+	// Ask for confirmation unless --yes flag is set
+	if !skipConfirmation {
+		confirmMsg := "Are you sure you want to uninstall Grapple? This will remove all Grapple components and data (y/N): "
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) != "y" {
+			utils.InfoMessage("Uninstallation cancelled")
+			return nil
+		}
+	}
 
 	// Connect to cluster
 	connectToCivoCluster := func() error {

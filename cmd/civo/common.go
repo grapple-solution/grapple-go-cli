@@ -27,6 +27,7 @@ var (
 	civoRegion        string
 	civoEmailAddress  string
 	installKubeblocks bool
+	skipConfirmation  bool
 
 	// Installation specific flags
 	grappleVersion string

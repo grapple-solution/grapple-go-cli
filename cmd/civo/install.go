@@ -104,6 +104,20 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	var kubeblocksWg sync.WaitGroup
 	kubeblocksInstallStatus := true
 	var kubeblocksInstallError error
+
+	// Check if flag was not set and not explicitly false
+	if !cmd.Flags().Changed("install-kubeblocks") && !installKubeblocks {
+		// Ask user if they want to install KubeBlocks
+		confirmMsg := "Do you want to install KubeBlocks? (y/N): "
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) == "y" {
+			installKubeblocks = true
+		}
+	}
+
 	if installKubeblocks {
 		kubeblocksWg.Add(1)
 		go func() {
@@ -247,7 +261,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	utils.RemoveCodeVerificationServer(restConfig)
+	// utils.RemoveCodeVerificationServer(restConfig)
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil

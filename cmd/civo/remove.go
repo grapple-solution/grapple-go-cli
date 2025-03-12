@@ -30,6 +30,7 @@ func init() {
 	RemoveCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, deletes the currently connected Civo cluster. If false, prompts for cluster name and civo region and deletes the specified cluster. Default value of auto-confirm is true")
 	RemoveCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	RemoveCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
+	RemoveCmd.Flags().BoolVarP(&skipConfirmation, "yes", "y", false, "Skip confirmation prompt before removing cluster")
 }
 
 func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
@@ -138,6 +139,19 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	if targetCluster == nil {
 		utils.ErrorMessage(fmt.Sprintf("Cluster %s not found in region %s", clusterName, civoRegion))
 		return fmt.Errorf("cluster %s not found in region %s", clusterName, civoRegion)
+	}
+
+	// Ask for confirmation unless --yes flag is set
+	if !skipConfirmation {
+		confirmMsg := fmt.Sprintf("Are you sure you want to delete cluster '%s' in region '%s'? This action cannot be undone (y/N): ", clusterName, civoRegion)
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) != "y" {
+			utils.InfoMessage("Cluster deletion cancelled")
+			return nil
+		}
 	}
 
 	utils.InfoMessage(fmt.Sprintf("Deleting cluster %s...", clusterName))

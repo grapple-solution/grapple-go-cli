@@ -252,8 +252,6 @@ func InstallKubeBlocksOnCluster(
 	}
 
 	// 1. Create CRDs first
-	// InfoMessage("Installing KubeBlocks CRDs...")
-
 	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.2/kubeblocks_crds.yaml"
 
 	// Use dynamic client to create CRDs
@@ -720,7 +718,7 @@ func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, exte
 
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			SuccessMessage("DNS update completed successfully")
+			SuccessMessage("DNS update triggered successfully")
 			return true, nil
 		case corev1.PodFailed:
 			return false, fmt.Errorf("DNS update failed")
