@@ -71,19 +71,33 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
+	// Connect to cluster
+	connectToCivoCluster := func() error {
+		err := connectToCluster(cmd, args)
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+		return nil
+	}
+
+	// Try to get existing connection first
+	_, clientset, err := utils.GetKubernetesConfig()
+	if err != nil {
+		utils.InfoMessage("No existing connection found")
+		err = connectToCivoCluster()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+	}
+
 	civoAPIKey := getCivoAPIKey()
 
 	if autoConfirm {
-
-		_, clientSet, err := utils.GetKubernetesConfig()
-		if err != nil {
-			utils.InfoMessage("No existing connection found")
-		} else {
-			if getClusterDetailsFromConfig(clientSet) {
-				utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
-			}
+		if !getClusterDetailsFromConfig(clientset) {
+			utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
 		}
-
 	}
 
 	if civoRegion == "" {
@@ -95,6 +109,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		}
 		civoRegion = result
 	}
+
 	// Initialize Civo client
 	apiKey := strings.TrimSpace(civoAPIKey)
 	client, err := civogo.NewClient(apiKey, civoRegion)
