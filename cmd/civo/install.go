@@ -261,7 +261,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// utils.RemoveCodeVerificationServer(restConfig)
+	utils.RemoveCodeVerificationServer(restConfig)
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
