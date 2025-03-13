@@ -765,3 +765,91 @@ func GenerateRandomString() string {
 	}
 	return hex.EncodeToString(bytes)
 }
+
+// PreloadGrappleImages downloads and caches Grapple images in the cluster
+func PreloadGrappleImages(restConfig *rest.Config, version string) error {
+	// Create the clientset
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// Define the images to preload
+	images := []string{
+		fmt.Sprintf("grpl/grapi:%s", version),
+		fmt.Sprintf("grpl/gruim:%s", version),
+	}
+
+	// Create pods to pull images
+	for _, image := range images {
+		// Create a unique name for the pod by replacing invalid characters
+		podName := fmt.Sprintf("image-preload-%s-%s",
+			strings.ReplaceAll(strings.Split(image, ":")[0], "/", "-"),
+			strings.ReplaceAll(strings.Split(image, ":")[1], ".", "-"))
+
+		// Check if pod already exists
+		_, err := clientset.CoreV1().Pods("default").Get(context.Background(), podName, v1.GetOptions{})
+		if err == nil {
+			// Pod exists, skip to next image
+			// InfoMessage(fmt.Sprintf("Pod %s already exists, skipping image preload for %s", podName, image))
+			continue
+		} else if !errors.IsNotFound(err) {
+			// Error other than "not found"
+			return fmt.Errorf("failed to check for existing pod %s: %w", podName, err)
+		}
+
+		pod := &corev1.Pod{
+			ObjectMeta: v1.ObjectMeta{
+				Name: podName,
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "preload",
+						Image: image,
+						Command: []string{
+							"sleep",
+							"1", // Sleep briefly just to pull the image
+						},
+					},
+				},
+				RestartPolicy: corev1.RestartPolicyNever,
+			},
+		}
+
+		// Create the pod
+		_, err = clientset.CoreV1().Pods("default").Create(context.Background(), pod, v1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create image preload pod for %s: %w", image, err)
+		}
+
+		// Wait for pod to complete
+		err = wait.PollImmediate(time.Second, time.Minute*5, func() (bool, error) {
+			pod, err := clientset.CoreV1().Pods("default").Get(context.Background(), podName, v1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+
+			switch pod.Status.Phase {
+			case corev1.PodSucceeded:
+				return true, nil
+			case corev1.PodFailed:
+				return false, fmt.Errorf("pod failed")
+			default:
+				return false, nil
+			}
+		})
+
+		if err != nil {
+			return fmt.Errorf("error waiting for image preload pod %s: %w", podName, err)
+		}
+
+		// Clean up the pod
+		err = clientset.CoreV1().Pods("default").Delete(context.Background(), podName, v1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete image preload pod %s: %w", podName, err)
+		}
+	}
+
+	return nil
+}
