@@ -132,6 +132,18 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
+	// Start preloading images in parallel
+	var preloadImagesWg sync.WaitGroup
+	preloadImagesWg.Add(1)
+	go func() {
+		defer preloadImagesWg.Done()
+		if err := utils.PreloadGrappleImages(restConfig, grappleVersion); err != nil {
+			utils.ErrorMessage("image preload error: " + err.Error())
+		} else {
+			utils.InfoMessage("grapple images preloaded.")
+		}
+	}()
+
 	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
 	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
 		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
@@ -260,6 +272,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			utils.ErrorMessage("Kubeblocks installation failed! with error: " + kubeblocksInstallError.Error())
 		}
 	}
+
+	utils.InfoMessage("Waiting for grapple images to be preloaded...")
+	preloadImagesWg.Wait()
 
 	// utils.RemoveCodeVerificationServer(restConfig)
 
