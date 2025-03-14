@@ -225,12 +225,10 @@ func InstallKbCli() error {
 		return fmt.Errorf("unsupported operating system: %s", OSType)
 	}
 
-	StartSpinner("Installing KubeBlocks CLI, It will take a few minutes...")
 	if err := cmd.Run(); err != nil {
 		ErrorMessage(fmt.Sprintf("Error installing KubeBlocks CLI: %v", err))
 		return fmt.Errorf("error installing KubeBlocks CLI: %w", err)
 	}
-	StopSpinner()
 	SuccessMessage("KubeBlocks CLI installed successfully")
 	return nil
 }
