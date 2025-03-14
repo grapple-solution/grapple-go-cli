@@ -844,11 +844,11 @@ func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 			return fmt.Errorf("error waiting for image preload pod %s: %w", podName, err)
 		}
 
-		// Clean up the pod
-		err = clientset.CoreV1().Pods("default").Delete(context.Background(), podName, v1.DeleteOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to delete image preload pod %s: %w", podName, err)
-		}
+		// // Clean up the pod
+		// err = clientset.CoreV1().Pods("default").Delete(context.Background(), podName, v1.DeleteOptions{})
+		// if err != nil {
+		// 	return fmt.Errorf("failed to delete image preload pod %s: %w", podName, err)
+		// }
 	}
 
 	return nil
