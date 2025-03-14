@@ -7,8 +7,8 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,13 +17,9 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/manifoldco/promptui"
 	"golang.org/x/exp/rand"
-	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/registry"
-	"helm.sh/helm/v3/pkg/repo"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -191,186 +187,37 @@ func Contains(slice []string, val string) bool {
 	return false
 }
 
-// installKubeBlocksOnCluster installs the KubeBlocks chart using Helm.
+// installKubeBlocksOnCluster installs KubeBlocks using kbcli.
 func InstallKubeBlocksOnCluster(
 	restConfig *rest.Config,
 ) error {
-
-	helmCfg, err := GetHelmConfig(restConfig, "kb-system")
-	if err != nil {
-		return fmt.Errorf("failed to get helm config: %w", err)
+	// First ensure kbcli is installed
+	if err := InstallKbCli(); err != nil {
+		return fmt.Errorf("failed to install kbcli: %w", err)
 	}
 
-	// Check if KubeBlocks release already exists in any namespace
-	client := action.NewList(helmCfg)
-	client.AllNamespaces = true // Search across all namespaces
-	releases, err := client.Run()
-	if err != nil {
-		return fmt.Errorf("failed to list helm releases: %w", err)
-	}
-
-	for _, release := range releases {
-		if release.Name == "kubeblocks" {
-			if release.Info.Status == "failed" {
-				// Delete the failed release
-				uninstall := action.NewUninstall(helmCfg)
-				_, err := uninstall.Run(release.Name)
-				if err != nil {
-					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
-				}
-				// InfoMessage("Removed failed KubeBlocks release, will attempt fresh install")
-			} else {
-				// InfoMessage("KubeBlocks release already exists, skipping installation")
-				return nil
-			}
-			break
-		}
-	}
-
-	// Create kb-system namespace if it doesn't exist
+	// Check if kb-system namespace exists
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
 	_, err = clientset.CoreV1().Namespaces().Get(context.Background(), "kb-system", v1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			ns := &corev1.Namespace{
-				ObjectMeta: v1.ObjectMeta{
-					Name: "kb-system",
-				},
-			}
-			_, err = clientset.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to create kb-system namespace: %w", err)
-			}
-			// InfoMessage("Created kb-system namespace")
-		} else {
-			return fmt.Errorf("failed to check kb-system namespace: %w", err)
-		}
+	if err == nil {
+		// Namespace exists, KubeBlocks is likely already installed
+		InfoMessage("KubeBlocks appears to be already installed (kb-system namespace exists)")
+		return nil
 	}
 
-	// 1. Create CRDs first
-	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.2/kubeblocks_crds.yaml"
+	// Install KubeBlocks using kbcli
+	cmd := exec.Command("kbcli", "kubeblocks", "install")
+	// cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	// Use dynamic client to create CRDs
-	dynamicClient, err := dynamic.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install KubeBlocks: %w", err)
 	}
 
-	// Fetch and apply CRDs
-	resp, err := http.Get(crdsURL)
-	if err != nil {
-		return fmt.Errorf("failed to download CRDs yaml: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Use k8syaml decoder to properly handle Kubernetes YAML
-	decoder := k8syaml.NewYAMLOrJSONDecoder(resp.Body, 4096)
-	for {
-		var obj unstructured.Unstructured
-		if err := decoder.Decode(&obj); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("failed to decode CRD yaml: %w", err)
-		}
-
-		// Skip empty documents
-		if len(obj.Object) == 0 {
-			// InfoMessage("Skipping empty document")
-			continue
-		}
-
-		gvr := schema.GroupVersionResource{
-			Group:    "apiextensions.k8s.io",
-			Version:  "v1",
-			Resource: "customresourcedefinitions",
-		}
-
-		_, err = dynamicClient.Resource(gvr).Create(context.Background(), &obj, v1.CreateOptions{})
-		if err != nil && !errors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
-		}
-
-		// InfoMessage(fmt.Sprintf("Created kubeblocks CRDs %s", obj.GetName()))
-	}
-	// Wait a bit for CRDs to be established
-	time.Sleep(10 * time.Second)
-
-	// 2. Create Helm environment settings
-	settings := cli.New()
-	settings.SetNamespace("kb-system")
-
-	// 3. Add the KubeBlocks Helm repository
-	repoEntry := repo.Entry{
-		Name: "kubeblocks",
-		URL:  "https://apecloud.github.io/helm-charts",
-	}
-
-	chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
-	if err != nil {
-		return fmt.Errorf("failed to create chart repository object: %w", err)
-	}
-
-	// Add repo to repositories.yaml
-	repoFile := settings.RepositoryConfig
-	b, err := os.ReadFile(repoFile)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read repository file: %w", err)
-	}
-
-	var f repo.File
-	if err := yaml.Unmarshal(b, &f); err != nil {
-		return fmt.Errorf("failed to unmarshal repository file: %w", err)
-	}
-
-	// Add new repo or update existing
-	f.Add(&repoEntry)
-
-	if err := f.WriteFile(repoFile, 0644); err != nil {
-		return fmt.Errorf("failed to write repository file: %w", err)
-	}
-
-	_, err = chartRepo.DownloadIndexFile()
-	if err != nil {
-		return fmt.Errorf("failed to download repository index: %w", err)
-	}
-
-	// InfoMessage("Added and updated kubeblocks helm repository")
-
-	// 4. Create a Helm install client
-	installClient := action.NewInstall(helmCfg)
-
-	installClient.ReleaseName = "kubeblocks"
-	installClient.Namespace = "kb-system"
-	installClient.CreateNamespace = true
-	installClient.Timeout = 1200 * time.Second // 20 minute timeout
-	installClient.Wait = true
-
-	// 5. Locate and load the chart
-	chartPath, err := installClient.ChartPathOptions.LocateChart("kubeblocks/kubeblocks", settings)
-	if err != nil {
-		return fmt.Errorf("failed to locate KubeBlocks chart: %w", err)
-	}
-
-	chartRequested, err := loader.Load(chartPath)
-	if err != nil {
-		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
-	}
-
-	// InfoMessage(fmt.Sprintf("release name: %s", installClient.ReleaseName))
-	// InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
-
-	// Set values to ensure installation in kb-system namespace
-	values := map[string]interface{}{}
-	if _, err := installClient.Run(chartRequested, values); err != nil {
-		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
-	}
-
-	// SuccessMessage("KubeBlocks installed successfully in namespace kb-system!")
 	return nil
 }
 
@@ -671,67 +518,77 @@ func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, exte
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	// Delete existing pod if exists
-	err = client.CoreV1().Pods("default").Delete(context.TODO(), "grpl-dns-route53-upsert", v1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete existing pod: %w", err)
-	}
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Delete existing pod if exists
+		err = client.CoreV1().Pods("default").Delete(context.TODO(), "grpl-dns-route53-upsert", v1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete existing pod: %w", err)
+		}
 
-	// Create DNS update pod
-	pod := &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "grpl-dns-route53-upsert",
-			Namespace: "default",
-		},
-		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
-			Containers: []corev1.Container{
-				{
-					Name:  "dns-upsert",
-					Image: "zaialpha/grpl-route53-upsert:latest",
-					Env: []corev1.EnvVar{
-						{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
-						{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
-						{Name: "GRPL_TARGET", Value: externalIP},
-						{Name: "TYPE", Value: recordType},
-						{Name: "CODE", Value: code},
-						{Name: "API_URL", Value: apiURL},
+		// Create DNS update pod
+		pod := &corev1.Pod{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "grpl-dns-route53-upsert",
+				Namespace: "default",
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:  "dns-upsert",
+						Image: "zaialpha/grpl-route53-upsert:latest",
+						Env: []corev1.EnvVar{
+							{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
+							{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
+							{Name: "GRPL_TARGET", Value: externalIP},
+							{Name: "TYPE", Value: recordType},
+							{Name: "CODE", Value: code},
+							{Name: "API_URL", Value: apiURL},
+						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	InfoMessage("Deploying grpl-dns-route53-upsert")
-	_, err = client.CoreV1().Pods("default").Create(context.TODO(), pod, v1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create DNS update pod: %w", err)
-	}
-
-	// Wait for pod completion
-	InfoMessage("Waiting for DNS update pod to complete")
-	err = wait.PollImmediate(2*time.Second, 90*time.Second, func() (bool, error) {
-		pod, err := client.CoreV1().Pods("default").Get(context.TODO(), "grpl-dns-route53-upsert", v1.GetOptions{})
+		InfoMessage(fmt.Sprintf("Deploying grpl-dns-route53-upsert (Attempt %d/%d)", attempt, maxRetries))
+		_, err = client.CoreV1().Pods("default").Create(context.TODO(), pod, v1.CreateOptions{})
 		if err != nil {
-			return false, nil
+			return fmt.Errorf("failed to create DNS update pod: %w", err)
 		}
 
-		switch pod.Status.Phase {
-		case corev1.PodSucceeded:
-			SuccessMessage("DNS update triggered successfully")
-			return true, nil
-		case corev1.PodFailed:
-			return false, fmt.Errorf("DNS update failed")
-		default:
-			return false, nil
-		}
-	})
+		// Wait for pod completion
+		InfoMessage("Waiting for DNS update pod to complete")
+		err = wait.PollImmediate(2*time.Second, 90*time.Second, func() (bool, error) {
+			pod, err := client.CoreV1().Pods("default").Get(context.TODO(), "grpl-dns-route53-upsert", v1.GetOptions{})
+			if err != nil {
+				return false, nil
+			}
 
-	if err != nil {
-		return fmt.Errorf("error waiting for DNS update pod: %w", err)
+			switch pod.Status.Phase {
+			case corev1.PodSucceeded:
+				SuccessMessage("DNS update verified successfully")
+				return true, nil
+			case corev1.PodFailed:
+				return false, fmt.Errorf("DNS update failed")
+			default:
+				return false, nil
+			}
+		})
+
+		if err == nil {
+			return nil // Success, exit the function
+		}
+
+		if attempt < maxRetries {
+			InfoMessage(fmt.Sprintf("DNS update failed, retrying... (Attempt %d/%d)", attempt+1, maxRetries))
+		} else {
+			ErrorMessage(fmt.Sprintf("DNS update failed after %d attempts", maxRetries))
+			return fmt.Errorf("DNS update failed after %d attempts: %w", maxRetries, err)
+		}
 	}
 
-	return nil
+	return nil // Should never reach here due to error return in last iteration
 }
 
 // Helper function to get APIResource for dynamic client
