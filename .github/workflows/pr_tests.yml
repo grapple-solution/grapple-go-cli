@@ -1,0 +1,44 @@
+name: PR Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the current branch's code
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Setup Go
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+      # Install Civo CLI
+      - name: Install Civo CLI
+        run: |
+          curl -sL https://civo.com/get | sh
+
+      # Build and install the CLI with required files  
+      - name: Build and Install CLI
+        run: |
+          go build -o grapple main.go
+          sudo mkdir -p /usr/local/share/grapple-go-cli
+          sudo cp -r template-files /usr/local/share/grapple-go-cli/
+          sudo cp -r files /usr/local/share/grapple-go-cli/
+          sudo mv grapple /usr/local/bin/
+          sudo chmod +x /usr/local/bin/grapple
+
+      # Run integration tests
+      - name: Run Integration Tests
+        env:
+          CIVO_API_TOKEN: ${{ secrets.CIVO_API_TOKEN }}
+        run: |
+          cd tests
+          go test -timeout 20m -run TestCivoIntegration

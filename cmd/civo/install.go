@@ -253,7 +253,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if waitForReady {
 		utils.InfoMessage("Waiting for Grapple to be ready...")
 		logOnFileStart()
-		err = waitForGrappleReady(restConfig)
+		err = utils.WaitForGrappleReady(restConfig)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
@@ -280,65 +280,6 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
-}
-
-func waitForGrappleReady(restConfig *rest.Config) error {
-	// Wait for all Crossplane packages to be healthy
-	utils.InfoMessage("Waiting for grpl to be ready")
-
-	deadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(deadline) {
-
-		dynamicClient, err := dynamic.NewForConfig(restConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create dynamic client: %w", err)
-		}
-
-		// Try to list all types of packages (providers, configurations, functions)
-		gvr := schema.GroupVersionResource{Group: "pkg.crossplane.io", Version: "v1", Resource: "configurations"}
-
-		var grplPackage unstructured.Unstructured
-		pkgList, err := dynamicClient.Resource(gvr).List(context.TODO(), v1.ListOptions{})
-		if err != nil {
-			if !strings.Contains(err.Error(), "the server could not find the requested resource") {
-				utils.ErrorMessage(fmt.Sprintf("Failed to list Crossplane %s for grpl: %v", gvr.Resource, err))
-				return err
-			}
-			continue
-		}
-
-		for _, pkg := range pkgList.Items {
-			if pkg.GetName() == "grpl" {
-				grplPackage = pkg
-				break
-			}
-		}
-
-		utils.InfoMessage(fmt.Sprintf("Checking package %s", grplPackage.GetName()))
-		conditions, found, err := unstructured.NestedSlice(grplPackage.Object, "status", "conditions")
-		if err != nil || !found {
-			utils.InfoMessage(fmt.Sprintf("Package %s not yet healthy", grplPackage.GetName()))
-			continue
-		}
-
-		isHealthy := false
-		for _, condition := range conditions {
-			conditionMap := condition.(map[string]interface{})
-			if conditionMap["type"] == "Healthy" && conditionMap["status"] == "True" {
-				utils.SuccessMessage("grpl is ready")
-				return nil
-			}
-		}
-
-		if !isHealthy {
-			utils.InfoMessage(fmt.Sprintf("Package %s not yet healthy", grplPackage.GetName()))
-			continue
-		}
-
-		time.Sleep(10 * time.Second)
-	}
-
-	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
 }
 
 func prepareValuesFile() error {

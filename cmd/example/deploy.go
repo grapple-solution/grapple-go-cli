@@ -12,8 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5" // Go-git package
 	"github.com/grapple-solution/grapple_cli/utils"
-	"github.com/spf13/cobra"
-	appsv1 "k8s.io/api/apps/v1" // Import for appsv1
+	"github.com/spf13/cobra" // Import for appsv1
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -305,41 +304,14 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 	if wait {
 		utils.InfoMessage("Waiting for grapi deployment to be ready...")
 		deploymentName := fmt.Sprintf("%s-%s-grapi", DeploymentNamespace, GrasName)
-		waitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName)
 		utils.SuccessMessage("grapi deployment is ready")
 
 		utils.InfoMessage("Waiting for gruim deployment to be ready...")
 		deploymentName = fmt.Sprintf("%s-%s-gruim", DeploymentNamespace, GrasName)
-		waitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName)
 		utils.SuccessMessage("gruim deployment is ready")
 	}
 
-	return nil
-}
-
-func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
-	// Watch deployment status
-	watcher, err := client.AppsV1().Deployments(namespace).Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", deploymentName),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to watch deployment: %w", err)
-	}
-	defer watcher.Stop()
-
-	// Wait for deployment to be ready
-	for event := range watcher.ResultChan() {
-		deployment, ok := event.Object.(*appsv1.Deployment)
-		if !ok {
-			continue
-		}
-
-		// Check if deployment is ready
-		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
-			deployment.Status.UpdatedReplicas == deployment.Status.Replicas {
-			utils.SuccessMessage("Deployment is ready")
-			break
-		}
-	}
 	return nil
 }
