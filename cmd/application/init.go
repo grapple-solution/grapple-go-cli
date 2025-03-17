@@ -4,16 +4,20 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package application
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/cli/go-gh"
-	"github.com/cli/go-gh/pkg/api"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/google/go-github/v54/github"
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2"
 )
 
 // InitCmd represents the init command
@@ -52,7 +56,9 @@ func initializeApplication(cmd *cobra.Command, args []string) error {
 	setGrappleTemplate()
 
 	// get GitHub token
-	getGitHubToken()
+	if err := getGitHubToken(); err != nil {
+		return err
+	}
 
 	// Validate and get project name
 	if err := validateAndSetProjectName(); err != nil {
@@ -121,6 +127,7 @@ func validateAndSetProjectName() error {
 	}
 	return nil
 }
+
 func handleDirectoryConflicts() error {
 	// Check if directory exists locally
 	if _, err := os.Stat(projectName); !os.IsNotExist(err) {
@@ -152,26 +159,24 @@ func handleDirectoryConflicts() error {
 		return nil
 	}
 
-	// Check if repo exists on GitHub
-	client, err := gh.RESTClient(&api.ClientOptions{
-		AuthToken: githubToken,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
-	}
+	// Create GitHub client
+	ctx := context.Background()
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: githubToken},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	githubClient := github.NewClient(tc)
 
 	// Get authenticated user
-	var user struct {
-		Login string `json:"login"`
-	}
-	err = client.Get("user", &user)
+	user, _, err := githubClient.Users.Get(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub user: %w", err)
 	}
 
+	username := user.GetLogin()
+
 	utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
-	response := struct{ Name string }{}
-	err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+	_, _, err = githubClient.Repositories.Get(ctx, username, projectName)
 	if err == nil { // Repo exists
 		if !autoConfirm {
 			result, err := utils.PromptSelect(
@@ -206,7 +211,7 @@ func handleDirectoryConflicts() error {
 			utils.InfoMessage(fmt.Sprintf("Trying new project name: %s", projectName))
 
 			// Check if new name exists
-			err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+			_, _, err = githubClient.Repositories.Get(ctx, username, projectName)
 			if err != nil { // Name is available
 				break
 			}
@@ -215,42 +220,59 @@ func handleDirectoryConflicts() error {
 
 	return nil
 }
+
 func authenticateGitHub() error {
-	_, err := gh.RESTClient(&api.ClientOptions{
-		AuthToken: githubToken,
-	})
+	ctx := context.Background()
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: githubToken},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	githubClient := github.NewClient(tc)
+
+	_, _, err := githubClient.Users.Get(ctx, "")
 	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
+		return fmt.Errorf("failed to authenticate with GitHub: %w", err)
 	}
 	return nil
 }
 
 func createOrCloneRepository() error {
-	client, err := gh.RESTClient(&api.ClientOptions{
-		AuthToken: githubToken,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
-	}
+	// Create a GitHub client using the go-github library
+	ctx := context.Background()
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: githubToken},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	githubClient := github.NewClient(tc)
 
 	// Get authenticated user
-	var user struct {
-		Login string `json:"login"`
-	}
-	err = client.Get("user", &user)
+	user, _, err := githubClient.Users.Get(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to get GitHub user: %w", err)
 	}
 
+	username := user.GetLogin()
+
 	// Check if repo exists
-	response := struct{ Name string }{}
 	utils.InfoMessage(fmt.Sprintf("Checking if repository %s exists on GitHub", projectName))
-	err = client.Get(fmt.Sprintf("repos/%s/%s", user.Login, projectName), &response)
+	_, _, err = githubClient.Repositories.Get(ctx, username, projectName)
 	repoExists := err == nil
 
 	if repoExists {
 		utils.InfoMessage("Cloning existing repository")
-		_, _, err := gh.Exec("repo", "clone", fmt.Sprintf("https://github.com/%s.git", grappleTemplate), projectName)
+
+		// Clone using go-git
+		repoURL := fmt.Sprintf("https://github.com/%s/%s.git", username, projectName)
+
+		_, err := git.PlainClone(projectName, false, &git.CloneOptions{
+			URL: repoURL,
+			Auth: &http.BasicAuth{
+				Username: "git", // This can be anything except empty string
+				Password: githubToken,
+			},
+			Progress: os.Stdout,
+		})
+
 		if err != nil {
 			return fmt.Errorf("failed to clone repository: %w", err)
 		}
@@ -261,12 +283,55 @@ func createOrCloneRepository() error {
 				return fmt.Errorf("operation cancelled by user")
 			}
 		}
+
+		// Parse template owner/repo
+		parts := strings.Split(grappleTemplate, "/")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid template format: %s, expected owner/repo", grappleTemplate)
+		}
+		templateOwner, templateRepo := parts[0], parts[1]
+
 		utils.InfoMessage(fmt.Sprintf("Creating repository %s from template %s", projectName, grappleTemplate))
-		_, _, err := gh.Exec("repo", "create", projectName, "--template", grappleTemplate, "--public", "--clone")
+
+		// Create a repository from a template using go-github
+		templateRepoRequest := &github.TemplateRepoRequest{
+			Name:        github.String(projectName),
+			Owner:       github.String(username),
+			Description: github.String(fmt.Sprintf("Project created from template %s", grappleTemplate)),
+			Private:     github.Bool(false),
+		}
+
+		_, _, err = githubClient.Repositories.CreateFromTemplate(
+			ctx,
+			templateOwner,
+			templateRepo,
+			templateRepoRequest,
+		)
+
 		if err != nil {
-			return fmt.Errorf("failed to create repository: %w", err)
+			return fmt.Errorf("failed to create repository from template: %w", err)
+		}
+
+		// Wait a moment for GitHub to fully set up the new repository
+		time.Sleep(2 * time.Second)
+
+		// Clone the newly created repository using go-git
+		repoURL := fmt.Sprintf("https://github.com/%s/%s.git", username, projectName)
+
+		_, err = git.PlainClone(projectName, false, &git.CloneOptions{
+			URL: repoURL,
+			Auth: &http.BasicAuth{
+				Username: "git", // This can be anything except empty string
+				Password: githubToken,
+			},
+			Progress: os.Stdout,
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to clone new repository: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -293,13 +358,17 @@ func printNextSteps() {
 }
 
 func getGitHubToken() error {
-
 	if githubToken == "" {
-		result, err := utils.PromptInput("Enter GitHub token", utils.DefaultValue, utils.AlphaNumericWithHyphenUnderscoreRegex)
-		if err != nil {
-			return fmt.Errorf("invalid GitHub token: %w", err)
+		// First try getting from environment
+		githubToken = os.Getenv("GITHUB_TOKEN")
+		// If still empty, prompt user
+		if githubToken == "" {
+			result, err := utils.PromptInput("Enter GitHub token", utils.DefaultValue, utils.AlphaNumericWithHyphenUnderscoreRegex)
+			if err != nil {
+				return fmt.Errorf("invalid GitHub token: %w", err)
+			}
+			githubToken = result
 		}
-		githubToken = result
 	}
 	os.Setenv("GITHUB_TOKEN", githubToken)
 
