@@ -170,9 +170,10 @@ func InstallYq() error {
 			return err
 		}
 
-		// Download yq binary
-		downloadCmd := exec.Command("sudo", "wget", "-O", "/usr/bin/yq",
-			"https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64")
+		// Download yq binary using curl
+		downloadCmd := exec.Command("sh", "-c", `
+			sudo curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/bin/yq
+		`)
 		downloadCmd.Stdout = os.Stdout
 		StartSpinner("Downloading Yq CLI, It will take a few minutes...")
 		if err := downloadCmd.Run(); err != nil {
