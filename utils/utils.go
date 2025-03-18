@@ -853,3 +853,15 @@ func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 
 	return nil
 }
+
+// LogoutHelmRegistry logs out from a Helm registry
+func LogoutHelmRegistry(registryClient *registry.Client) error {
+
+	// Perform the logout
+	registryURL := "public.ecr.aws"
+	if err := registryClient.Logout(registryURL); err != nil {
+		return fmt.Errorf("failed to logout from registry %s: %w", registryURL, err)
+	}
+
+	return nil
+}
