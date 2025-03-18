@@ -395,6 +395,7 @@ func GetHelmConfig(restConfig *rest.Config, helmNamespace string) (*action.Confi
 
 	// Initialize the OCI registry client
 	registryClient, err := registry.NewClient()
+	LogoutHelmRegistry(registryClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init helm config: %w", err)
 	}
@@ -873,6 +874,18 @@ func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 		if err != nil {
 			return fmt.Errorf("failed to delete image preload pod %s: %w", podName, err)
 		}
+	}
+
+	return nil
+}
+
+// LogoutHelmRegistry logs out from a Helm registry
+func LogoutHelmRegistry(registryClient *registry.Client) error {
+
+	// Perform the logout
+	registryURL := "public.ecr.aws"
+	if err := registryClient.Logout(registryURL); err != nil {
+		return fmt.Errorf("failed to logout from registry %s: %w", registryURL, err)
 	}
 
 	return nil
