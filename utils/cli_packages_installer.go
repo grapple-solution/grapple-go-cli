@@ -119,7 +119,11 @@ func InstallTaskCLI() error {
 		if err := authSudo(); err != nil {
 			return err
 		}
-		cmd = exec.Command("sudo", "snap", "install", "task", "--classic")
+		cmd = exec.Command("sh", "-c", `
+		curl -sL https://github.com/go-task/task/releases/latest/download/task_linux_amd64.tar.gz | \
+		tar xz -C /tmp && \
+		sudo mv /tmp/task /usr/local/bin/
+	  `)
 	case "windows":
 		// Download Task binary for Windows
 		downloadCmd := exec.Command("powershell", "-Command",
