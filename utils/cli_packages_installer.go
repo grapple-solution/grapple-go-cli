@@ -207,28 +207,3 @@ func InstallYq() error {
 	SuccessMessage("Yq CLI installed successfully")
 	return nil
 }
-
-func InstallKbCli() error {
-	if _, err := exec.LookPath("kbcli"); err == nil {
-		return nil // Already installed
-	}
-
-	InfoMessage("Installing KubeBlocks CLI...")
-
-	var cmd *exec.Cmd
-	switch OSType {
-	case "mac", "linux":
-		cmd = exec.Command("bash", "-c", "curl -fsSL https://kubeblocks.io/installer/install_cli.sh | bash")
-	case "windows":
-		return fmt.Errorf("KubeBlocks CLI installation not supported on Windows")
-	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
-	}
-
-	if err := cmd.Run(); err != nil {
-		ErrorMessage(fmt.Sprintf("Error installing KubeBlocks CLI: %v", err))
-		return fmt.Errorf("error installing KubeBlocks CLI: %w", err)
-	}
-	SuccessMessage("KubeBlocks CLI installed successfully")
-	return nil
-}
