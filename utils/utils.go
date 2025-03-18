@@ -395,7 +395,6 @@ func GetHelmConfig(restConfig *rest.Config, helmNamespace string) (*action.Confi
 
 	// Initialize the OCI registry client
 	registryClient, err := registry.NewClient()
-	LogoutHelmRegistry(registryClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init helm config: %w", err)
 	}
