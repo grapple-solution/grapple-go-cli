@@ -26,8 +26,8 @@ func init() {
 	}
 }
 
-// authSudo authenticates sudo once to avoid repeated password prompts
-func authSudo() error {
+// AuthSudo authenticates sudo once to avoid repeated password prompts
+func AuthSudo() error {
 	if OSType == "windows" {
 		return nil // No sudo needed on Windows
 	}
@@ -56,7 +56,7 @@ func InstallDevspace() error {
 		cmd = exec.Command("brew", "install", "devspace")
 	case "linux":
 		// Authenticate sudo once before operations that need it
-		if err := authSudo(); err != nil {
+		if err := AuthSudo(); err != nil {
 			return err
 		}
 
@@ -116,7 +116,7 @@ func InstallTaskCLI() error {
 		cmd = exec.Command("brew", "install", "go-task/tap/go-task")
 	case "linux":
 		// Authenticate sudo once before operations that need it
-		if err := authSudo(); err != nil {
+		if err := AuthSudo(); err != nil {
 			return err
 		}
 		cmd = exec.Command("sudo", "snap", "install", "task", "--classic")
@@ -162,7 +162,7 @@ func InstallYq() error {
 		cmd = exec.Command("brew", "install", "yq")
 	case "linux":
 		// Authenticate sudo once before operations that need it
-		if err := authSudo(); err != nil {
+		if err := AuthSudo(); err != nil {
 			return err
 		}
 
@@ -205,5 +205,73 @@ func InstallYq() error {
 	}
 	StopSpinner()
 	SuccessMessage("Yq CLI installed successfully")
+	return nil
+}
+
+func InstallK3d() error {
+	if _, err := exec.LookPath("k3d"); err == nil {
+		return nil // Already installed
+	}
+
+	InfoMessage("Installing K3d CLI...")
+
+	var cmd *exec.Cmd
+	switch OSType {
+	case "mac":
+		cmd = exec.Command("brew", "install", "k3d")
+	case "linux":
+		// Authenticate sudo once before operations that need it
+		if err := AuthSudo(); err != nil {
+			return err
+		}
+
+		// Use bash to properly handle the pipe with the installation script
+		cmd = exec.Command("bash", "-c", "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
+	case "windows":
+		// Download k3d binary for Windows using the official installation script
+		cmd = exec.Command("powershell", "-Command",
+			"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -OutFile install-k3d.ps1; ./install-k3d.ps1")
+	default:
+		return fmt.Errorf("unsupported operating system: %s", OSType)
+	}
+
+	StartSpinner("Installing K3d CLI, It will take a few minutes...")
+	if err := cmd.Run(); err != nil {
+		ErrorMessage(fmt.Sprintf("Error installing k3d: %v", err))
+		return fmt.Errorf("error installing k3d: %w", err)
+	}
+	StopSpinner()
+	SuccessMessage("K3d CLI installed successfully")
+	return nil
+}
+
+func InstallDnsmasq() error {
+	if _, err := exec.LookPath("dnsmasq"); err == nil {
+		return nil // Already installed
+	}
+
+	InfoMessage("Installing Dnsmasq...")
+
+	var cmd *exec.Cmd
+	switch OSType {
+	case "mac":
+		cmd = exec.Command("brew", "install", "dnsmasq")
+	case "linux":
+		// Authenticate sudo once before operations that need it
+		if err := AuthSudo(); err != nil {
+			return err
+		}
+		cmd = exec.Command("sudo", "apt-get", "install", "-y", "dnsmasq")
+	default:
+		return fmt.Errorf("unsupported operating system: %s", OSType)
+	}
+
+	StartSpinner("Installing Dnsmasq, It will take a few minutes...")
+	if err := cmd.Run(); err != nil {
+		ErrorMessage(fmt.Sprintf("Error installing dnsmasq: %v", err))
+		return fmt.Errorf("error installing dnsmasq: %w", err)
+	}
+	StopSpinner()
+	SuccessMessage("Dnsmasq installed successfully")
 	return nil
 }

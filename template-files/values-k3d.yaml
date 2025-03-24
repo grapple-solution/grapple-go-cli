@@ -2,10 +2,10 @@ config:
  ssl: 'true'
  sslissuer: 'letsencrypt-prod'
 registry:
- enabled: false
+ enabled: true
 cert-manager:
- enabled: false
- installCRDs: false
+ enabled: true
+ installCRDs: true
 externalsecrets:
  enabled: false
 external-secrets:
@@ -27,4 +27,4 @@ crossplane:
  aws:
    enabled: false
  permissions:
-   enabled: false
+   enabled: true

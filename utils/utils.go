@@ -853,3 +853,41 @@ func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 
 	return nil
 }
+
+func ExtractDomainFromGrplConfig(restClient *rest.Config) (string, error) {
+	clientset, err := kubernetes.NewForConfig(restClient)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	secret, err := clientset.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get secret: %w", err)
+	}
+
+	clusterdomain, exists := secret.Data["clusterdomain"]
+	if !exists {
+		return "", nil
+	}
+
+	return string(clusterdomain), nil
+}
+
+func IsSSLEnabled(restClient *rest.Config) (bool, error) {
+	clientset, err := kubernetes.NewForConfig(restClient)
+	if err != nil {
+		return false, fmt.Errorf("failed to create Kubernetes client: %w", err)
+	}
+
+	secret, err := clientset.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get secret: %w", err)
+	}
+
+	sslEnabled, exists := secret.Data["ssl"]
+	if !exists {
+		return false, nil
+	}
+
+	return string(sslEnabled) == "true", nil
+}

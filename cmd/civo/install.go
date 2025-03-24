@@ -1429,16 +1429,3 @@ func waitForGrsfIntegration(restConfig *rest.Config) error {
 
 	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
 }
-
-// func getEnv(key, defVal string) string {
-// 	val := strings.TrimSpace(SystemGetenv(key))
-// 	if val == "" {
-// 		return defVal
-// 	}
-// 	return val
-// }
-
-// // If you're in a controlled environment, you can just use os.Getenv directly
-// func SystemGetenv(key string) string {
-// 	return "" // or os.Getenv(key)
-// }
