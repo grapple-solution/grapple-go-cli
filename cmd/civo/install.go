@@ -276,7 +276,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")
 	preloadImagesWg.Wait()
 
-	// utils.RemoveCodeVerificationServer(restConfig)
+	utils.RemoveCodeVerificationServer(restConfig)
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil

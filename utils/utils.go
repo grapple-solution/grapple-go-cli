@@ -252,7 +252,7 @@ func InstallKubeBlocksOnCluster(
 	}
 
 	// 1. Create CRDs first
-	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.2/kubeblocks_crds.yaml"
+	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.1/kubeblocks_crds.yaml"
 
 	// Use dynamic client to create CRDs
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
@@ -348,6 +348,7 @@ func InstallKubeBlocksOnCluster(
 	installClient.Namespace = "kb-system"
 	installClient.CreateNamespace = true
 	installClient.Timeout = 1200 * time.Second // 20 minute timeout
+	installClient.Version = "0.9.1"
 	installClient.Wait = true
 
 	// 5. Locate and load the chart
@@ -365,7 +366,20 @@ func InstallKubeBlocksOnCluster(
 	// InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
 
 	// Set values to ensure installation in kb-system namespace
-	values := map[string]interface{}{}
+	values := map[string]interface{}{
+		"image": map[string]interface{}{
+			"registry":   "docker.io",
+			"repository": "apecloud/kubeblocks",
+		},
+		"dataScriptImage": map[string]interface{}{
+			"registry":   "docker.io",
+			"repository": "apecloud/kubeblocks-datascript",
+		},
+		"toolImage": map[string]interface{}{
+			"registry":   "docker.io",
+			"repository": "apecloud/kubeblocks-tools",
+		},
+	}
 	if _, err := installClient.Run(chartRequested, values); err != nil {
 		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
 	}
@@ -671,67 +685,77 @@ func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, exte
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	// Delete existing pod if exists
-	err = client.CoreV1().Pods("default").Delete(context.TODO(), "grpl-dns-route53-upsert", v1.DeleteOptions{})
-	if err != nil && !errors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete existing pod: %w", err)
-	}
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Delete existing pod if exists
+		err = client.CoreV1().Pods("default").Delete(context.TODO(), "grpl-dns-route53-upsert", v1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete existing pod: %w", err)
+		}
 
-	// Create DNS update pod
-	pod := &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "grpl-dns-route53-upsert",
-			Namespace: "default",
-		},
-		Spec: corev1.PodSpec{
-			RestartPolicy: corev1.RestartPolicyNever,
-			Containers: []corev1.Container{
-				{
-					Name:  "dns-upsert",
-					Image: "zaialpha/grpl-route53-upsert:latest",
-					Env: []corev1.EnvVar{
-						{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
-						{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
-						{Name: "GRPL_TARGET", Value: externalIP},
-						{Name: "TYPE", Value: recordType},
-						{Name: "CODE", Value: code},
-						{Name: "API_URL", Value: apiURL},
+		// Create DNS update pod
+		pod := &corev1.Pod{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "grpl-dns-route53-upsert",
+				Namespace: "default",
+			},
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:  "dns-upsert",
+						Image: "zaialpha/grpl-route53-upsert:latest",
+						Env: []corev1.EnvVar{
+							{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
+							{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
+							{Name: "GRPL_TARGET", Value: externalIP},
+							{Name: "TYPE", Value: recordType},
+							{Name: "CODE", Value: code},
+							{Name: "API_URL", Value: apiURL},
+						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	InfoMessage("Deploying grpl-dns-route53-upsert")
-	_, err = client.CoreV1().Pods("default").Create(context.TODO(), pod, v1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create DNS update pod: %w", err)
-	}
-
-	// Wait for pod completion
-	InfoMessage("Waiting for DNS update pod to complete")
-	err = wait.PollImmediate(2*time.Second, 90*time.Second, func() (bool, error) {
-		pod, err := client.CoreV1().Pods("default").Get(context.TODO(), "grpl-dns-route53-upsert", v1.GetOptions{})
+		InfoMessage(fmt.Sprintf("Deploying grpl-dns-route53-upsert (Attempt %d/%d)", attempt, maxRetries))
+		_, err = client.CoreV1().Pods("default").Create(context.TODO(), pod, v1.CreateOptions{})
 		if err != nil {
-			return false, nil
+			return fmt.Errorf("failed to create DNS update pod: %w", err)
 		}
 
-		switch pod.Status.Phase {
-		case corev1.PodSucceeded:
-			SuccessMessage("DNS update triggered successfully")
-			return true, nil
-		case corev1.PodFailed:
-			return false, fmt.Errorf("DNS update failed")
-		default:
-			return false, nil
-		}
-	})
+		// Wait for pod completion
+		InfoMessage("Waiting for DNS update pod to complete")
+		err = wait.PollImmediate(2*time.Second, 90*time.Second, func() (bool, error) {
+			pod, err := client.CoreV1().Pods("default").Get(context.TODO(), "grpl-dns-route53-upsert", v1.GetOptions{})
+			if err != nil {
+				return false, nil
+			}
 
-	if err != nil {
-		return fmt.Errorf("error waiting for DNS update pod: %w", err)
+			switch pod.Status.Phase {
+			case corev1.PodSucceeded:
+				SuccessMessage("DNS update verified successfully")
+				return true, nil
+			case corev1.PodFailed:
+				return false, fmt.Errorf("DNS update failed")
+			default:
+				return false, nil
+			}
+		})
+
+		if err == nil {
+			return nil // Success, exit the function
+		}
+
+		if attempt < maxRetries {
+			InfoMessage(fmt.Sprintf("DNS update failed, retrying... (Attempt %d/%d)", attempt+1, maxRetries))
+		} else {
+			ErrorMessage(fmt.Sprintf("DNS update failed after %d attempts", maxRetries))
+			return fmt.Errorf("DNS update failed after %d attempts: %w", maxRetries, err)
+		}
 	}
 
-	return nil
+	return nil // Should never reach here due to error return in last iteration
 }
 
 // Helper function to get APIResource for dynamic client
