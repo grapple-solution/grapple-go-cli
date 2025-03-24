@@ -174,11 +174,11 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	prepareValuesFile()
 
-	// deploymentPath, err := utils.GetResourcePath("template-files")
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get deployment path: %w", err)
-	// }
-	deploymentPath := "template-files"
+	deploymentPath, err := utils.GetResourcePath("template-files")
+	if err != nil {
+		return fmt.Errorf("failed to get deployment path: %w", err)
+	}
+	// deploymentPath := "template-files"
 	valuesFileForK3d := filepath.Join(deploymentPath, "values-k3d.yaml")
 
 	valuesFile := []string{"/tmp/values-override.yaml", valuesFileForK3d}

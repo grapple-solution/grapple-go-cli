@@ -64,7 +64,7 @@ func createCluster(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create the cluster
-	utils.InfoMessage(fmt.Sprintf("Creating cluster '%s'...", clusterName))
+	utils.InfoMessage(fmt.Sprintf("Creating cluster '%s', it may take a while...", clusterName))
 	createCmdArgs := []string{
 		"cluster", "create", clusterName,
 		"--servers", fmt.Sprintf("%d", nodes),
@@ -77,8 +77,7 @@ func createCluster(cmd *cobra.Command, args []string) error {
 	}
 	createCmd := exec.Command("k3d", createCmdArgs...)
 
-	fmt.Println("createCmd", createCmd.String())
-	createCmd.Stdout = os.Stdout
+	// createCmd.Stdout = os.Stdout
 	createCmd.Stderr = os.Stderr
 
 	if err := createCmd.Run(); err != nil {
