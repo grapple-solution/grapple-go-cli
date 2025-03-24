@@ -15,7 +15,6 @@ import (
 
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -120,16 +119,16 @@ func patchCoreDNS(restConfig *rest.Config) error {
 		return fmt.Errorf("failed to get CoreDNS ConfigMap: %w", err)
 	}
 
-	// Create backup file
-	backupData, err := yaml.Marshal(configMap)
-	if err != nil {
-		return fmt.Errorf("failed to marshal ConfigMap for backup: %w", err)
-	}
+	// // Create backup file
+	// backupData, err := yaml.Marshal(configMap)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to marshal ConfigMap for backup: %w", err)
+	// }
 
-	if err := os.WriteFile("coredns-backup.yaml", backupData, 0644); err != nil {
-		return fmt.Errorf("failed to write backup file: %w", err)
-	}
-	utils.InfoMessage("Backup saved as coredns-backup.yaml")
+	// if err := os.WriteFile("coredns-backup.yaml", backupData, 0644); err != nil {
+	// 	return fmt.Errorf("failed to write backup file: %w", err)
+	// }
+	// utils.InfoMessage("Backup saved as coredns-backup.yaml")
 
 	// Check if the forward directive is already updated
 	corefile := configMap.Data["Corefile"]
