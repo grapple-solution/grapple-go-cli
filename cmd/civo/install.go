@@ -706,6 +706,7 @@ func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, ch
 
 	// Create a registry client (for pulling OCI charts)
 	regClient, err := registry.NewClient()
+	utils.LogoutHelmRegistry(regClient)
 	if err != nil {
 		return fmt.Errorf("failed to create registry client: %v", err)
 	}

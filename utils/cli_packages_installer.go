@@ -119,7 +119,11 @@ func InstallTaskCLI() error {
 		if err := authSudo(); err != nil {
 			return err
 		}
-		cmd = exec.Command("sudo", "snap", "install", "task", "--classic")
+		cmd = exec.Command("sh", "-c", `
+		curl -sL https://github.com/go-task/task/releases/latest/download/task_linux_amd64.tar.gz | \
+		tar xz -C /tmp && \
+		sudo mv /tmp/task /usr/local/bin/
+	  `)
 	case "windows":
 		// Download Task binary for Windows
 		downloadCmd := exec.Command("powershell", "-Command",
@@ -166,9 +170,10 @@ func InstallYq() error {
 			return err
 		}
 
-		// Download yq binary
-		downloadCmd := exec.Command("sudo", "wget", "-O", "/usr/bin/yq",
-			"https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64")
+		// Download yq binary using curl
+		downloadCmd := exec.Command("sh", "-c", `
+			sudo curl -sL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o /usr/bin/yq
+		`)
 		downloadCmd.Stdout = os.Stdout
 		StartSpinner("Downloading Yq CLI, It will take a few minutes...")
 		if err := downloadCmd.Run(); err != nil {
