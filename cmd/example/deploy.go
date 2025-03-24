@@ -149,7 +149,7 @@ func deployDBFile(client *kubernetes.Clientset, restConfig *rest.Config, repoPat
 func deployDBCacheRedis(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string, logOnCliAndFileStart, logOnFileStart func()) error {
 	manifestPath := filepath.Join(repoPath, "db-cache-redis/resource.yaml")
 	// check and install kubeblocks first
-	utils.InfoMessage("Checking and installing kubeblocks...")
+	utils.InfoMessage("Checking and installing kubeblocks, it may take a while...")
 	logOnFileStart()
 	if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 		logOnCliAndFileStart()
@@ -164,7 +164,7 @@ func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPa
 	var manifestPath string
 	if dbType == utils.DB_INTERNAL {
 		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/internal_resource.yaml", dbStyle))
-		utils.InfoMessage("Checking and installing kubeblocks...")
+		utils.InfoMessage("Checking and installing kubeblocks, it may take a while...")
 		logOnFileStart()
 		if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 			logOnCliAndFileStart()

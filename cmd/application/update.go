@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/cli/go-gh"
-	"github.com/cli/go-gh/pkg/api"
-	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/grapple-solution/grapple_cli/utils"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +30,7 @@ This command checks for and applies updates to configuration files and documenta
 }
 
 func init() {
-	UpdateCmd.Flags().StringVarP(&grappleTemplate, "grapple-template", "", "grapple-solutions/grapple-template", "Template repository to use")
+	UpdateCmd.Flags().StringVarP(&grappleTemplate, "grapple-template", "", "", "Template repository to use")
 	UpdateCmd.Flags().StringVarP(&githubToken, "github-token", "", "", "GitHub token for authentication")
 }
 
@@ -47,17 +49,17 @@ func updateApplication(cmd *cobra.Command, args []string) error {
 	}
 
 	// get github auth token
-	err := getGitHubToken()
-	if err != nil {
+	if err := getGitHubToken(); err != nil {
 		return fmt.Errorf("failed to get GitHub token: %w", err)
 	}
 
-	// Setup GitHub client
-	_, err = gh.RESTClient(&api.ClientOptions{
-		AuthToken: githubToken,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create GitHub client: %w", err)
+	// Setup GitHub client and authenticate
+	if err := authenticateGitHub(); err != nil {
+		return err
+	}
+
+	if err := getTemplateRepo(); err != nil {
+		return err
 	}
 
 	// Add and fetch template repository
@@ -88,6 +90,40 @@ func validateGrappleTemplate() error {
 	return nil
 }
 
+func getTemplateRepo() error {
+	// Check if gruim folder exists
+	gruimPath := "./gruim"
+	if _, err := os.Stat(gruimPath); os.IsNotExist(err) {
+		return fmt.Errorf("gruim folder not found")
+	}
+
+	// Check for .svelte files in gruim folder
+	hasSvelteFiles := false
+	err := filepath.Walk(gruimPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".svelte") {
+			hasSvelteFiles = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("error checking gruim folder: %w", err)
+	}
+
+	if hasSvelteFiles {
+		grappleTemplate = "grapple-solution/grapple-svelte-template"
+	} else {
+		grappleTemplate = "grapple-solution/grapple-react-template"
+	}
+
+	utils.InfoMessage(fmt.Sprintf("grappleTemplate: %s", grappleTemplate))
+
+	return nil
+}
+
 func setupTemplateRepo() error {
 	templateRepoPath := "./template"
 
@@ -95,7 +131,11 @@ func setupTemplateRepo() error {
 	if _, err := os.Stat(templateRepoPath); os.IsNotExist(err) {
 		utils.InfoMessage("Cloning template repository...")
 		_, err := git.PlainClone(templateRepoPath, false, &git.CloneOptions{
-			URL:      fmt.Sprintf("https://github.com/%s.git", grappleTemplate),
+			URL: fmt.Sprintf("https://github.com/%s.git", grappleTemplate),
+			Auth: &http.BasicAuth{
+				Username: "git",
+				Password: githubToken,
+			},
 			Progress: os.Stdout,
 		})
 		if err != nil {
@@ -111,7 +151,13 @@ func setupTemplateRepo() error {
 		if err != nil {
 			return fmt.Errorf("failed to get worktree: %w", err)
 		}
-		err = w.Pull(&git.PullOptions{RemoteName: "origin"})
+		err = w.Pull(&git.PullOptions{
+			RemoteName: "origin",
+			Auth: &http.BasicAuth{
+				Username: "git",
+				Password: githubToken,
+			},
+		})
 		if err != nil && err != git.NoErrAlreadyUpToDate {
 			return fmt.Errorf("failed to pull updates: %w", err)
 		}
@@ -121,40 +167,6 @@ func setupTemplateRepo() error {
 }
 
 func syncDifferences() error {
-	repo, err := git.PlainOpen(".")
-	if err != nil {
-		return fmt.Errorf("failed to open current repository: %w", err)
-	}
-
-	// Get current HEAD reference
-	_, err = repo.Head()
-	if err != nil {
-		return fmt.Errorf("failed to get current branch: %w", err)
-	}
-
-	// Get working tree
-	wt, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("failed to get worktree: %w", err)
-	}
-
-	// Fetch latest changes from remote
-	err = repo.Fetch(&git.FetchOptions{
-		RemoteName: "origin",
-		Progress:   os.Stdout,
-		Force:      true,
-	})
-	if err != nil && err != git.NoErrAlreadyUpToDate {
-		return fmt.Errorf("failed to fetch updates: %w", err)
-	}
-
-	// Compare working tree against the latest commit
-	status, err := wt.Status()
-	if err != nil {
-		return fmt.Errorf("failed to get git status: %w", err)
-	}
-
-	files := []string{}
 	patterns := []string{
 		"devspace.yaml",
 		"devspace_start.sh",
@@ -169,25 +181,123 @@ func syncDifferences() error {
 		"gruim/*/README.md",
 	}
 
-	// Identify files with real changes
-	for filePath, fileStatus := range status {
-		if fileStatus.Worktree == git.Modified || fileStatus.Worktree == git.Added || fileStatus.Worktree == git.Deleted {
-			for _, pattern := range patterns {
-				if matched, _ := filepath.Match(pattern, filePath); matched {
-					files = append(files, filePath)
-					break
-				}
-			}
+	// Get current repository
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		return fmt.Errorf("failed to open current repository: %w", err)
+	}
+
+	// Ensure the template remote exists
+	remotes, err := repo.Remotes()
+	if err != nil {
+		return fmt.Errorf("failed to get remotes: %w", err)
+	}
+
+	// Check if template remote exists
+	templateRemoteExists := false
+	for _, remote := range remotes {
+		if remote.Config().Name == "template" {
+			templateRemoteExists = true
+			break
 		}
 	}
 
-	if len(files) == 0 {
+	// If template remote doesn't exist, create it
+	if !templateRemoteExists {
+		utils.InfoMessage("Adding template remote...")
+		_, err = repo.CreateRemote(&config.RemoteConfig{
+			Name: "template",
+			URLs: []string{fmt.Sprintf("https://github.com/%s.git", grappleTemplate)},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create template remote: %w", err)
+		}
+	}
+
+	// Fetch latest from template
+	utils.InfoMessage("Fetching updates from template...")
+	err = repo.Fetch(&git.FetchOptions{
+		RemoteName: "template",
+		Auth: &http.BasicAuth{
+			Username: "git",
+			Password: githubToken,
+		},
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return fmt.Errorf("failed to fetch template: %w", err)
+	}
+
+	// Get template branch reference (try main first, then master)
+	templateRef, err := repo.Reference("refs/remotes/template/main", true)
+	if err != nil {
+		// Try template/master if main not found
+		templateRef, err = repo.Reference("refs/remotes/template/master", true)
+		if err != nil {
+			return fmt.Errorf("failed to get template reference (tried main and master): %w", err)
+		}
+	}
+
+	// Get template commit and tree
+	templateCommit, err := repo.CommitObject(templateRef.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to get template commit: %w", err)
+	}
+
+	templateTree, err := templateCommit.Tree()
+	if err != nil {
+		return fmt.Errorf("failed to get template tree: %w", err)
+	}
+
+	// Get all template files matching our patterns
+	templateFiles := make(map[string]string) // path -> content
+	err = templateTree.Files().ForEach(func(f *object.File) error {
+		for _, pattern := range patterns {
+			if matched, _ := filepath.Match(pattern, f.Name); matched {
+				content, err := f.Contents()
+				if err != nil {
+					return fmt.Errorf("failed to read template file %s: %w", f.Name, err)
+				}
+				templateFiles[f.Name] = content
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to enumerate template files: %w", err)
+	}
+
+	// Compare with local files
+	var diffFiles []string
+	for path, templateContent := range templateFiles {
+		// Read local file
+		localContent, err := os.ReadFile(path)
+		if err != nil {
+			// File doesn't exist locally or can't be read
+			diffFiles = append(diffFiles, path)
+			continue
+		}
+
+		// Normalize line endings to avoid false positives
+		normalizedTemplate := strings.ReplaceAll(templateContent, "\r\n", "\n")
+		normalizedLocal := strings.ReplaceAll(string(localContent), "\r\n", "\n")
+
+		// Compare content (ignoring whitespace for better results)
+		if normalizedTemplate != normalizedLocal {
+			diffFiles = append(diffFiles, path)
+		}
+	}
+
+	// Sort files alphabetically for consistency
+	sort.Strings(diffFiles)
+
+	if len(diffFiles) == 0 {
 		utils.InfoMessage("No differences found between the current branch and grapple-template")
 		return nil
 	}
 
 	// Let user choose files to update
-	choices := append([]string{"Exit", "Apply All"}, files...)
+	choices := append([]string{"Exit", "Apply All"}, diffFiles...)
 	selected, err := utils.PromptSelect("Select a file to view and apply the differences", choices)
 	if err != nil {
 		return err
@@ -198,17 +308,16 @@ func syncDifferences() error {
 		utils.InfoMessage("Exiting without applying further changes")
 		return nil
 	case "Apply All":
-		for _, file := range files {
+		for _, file := range diffFiles {
 			utils.InfoMessage(fmt.Sprintf("Applying differences for %s...", file))
-			err := applyGitChanges(".")
-			if err != nil {
+			if err := applyFileChanges(file, templateFiles[file]); err != nil {
 				return fmt.Errorf("failed to apply changes to %s: %w", file, err)
 			}
 		}
 		utils.SuccessMessage("All differences applied")
 	default:
-		err := applyGitChanges(".")
-		if err != nil {
+		utils.InfoMessage(fmt.Sprintf("Applying differences for %s...", selected))
+		if err := applyFileChanges(selected, templateFiles[selected]); err != nil {
 			return fmt.Errorf("failed to apply changes to %s: %w", selected, err)
 		}
 		utils.SuccessMessage(fmt.Sprintf("%s updated", selected))
@@ -217,25 +326,81 @@ func syncDifferences() error {
 	return nil
 }
 
-func applyGitChanges(repoPath string) error {
-	repo, err := git.PlainOpen(repoPath)
+func applyFileChanges(filePath string, templateContent string) error {
+	// Read local file content if it exists
+	localContent, err := os.ReadFile(filePath)
+	var localContentStr string
+	if err == nil {
+		localContentStr = string(localContent)
+	}
+
+	// Normalize line endings
+	normalizedTemplate := strings.ReplaceAll(templateContent, "\r\n", "\n")
+	normalizedLocal := strings.ReplaceAll(localContentStr, "\r\n", "\n")
+
+	// Check if already identical
+	if normalizedTemplate == normalizedLocal {
+		utils.InfoMessage(fmt.Sprintf("File %s already matches the template version", filePath))
+		return nil
+	}
+
+	// Show diff
+	utils.InfoMessage(fmt.Sprintf("Changes for %s:", filePath))
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(normalizedLocal, normalizedTemplate, false)
+
+	// Only show diff if local file exists
+	if len(localContentStr) > 0 {
+		fmt.Println(dmp.DiffPrettyText(diffs))
+	} else {
+		// For new files, just show content
+		fmt.Println(templateContent)
+	}
+
+	// Ask for confirmation
+	confirm, err := utils.PromptConfirm("Would you like to apply these changes?")
+	if err != nil {
+		return fmt.Errorf("failed to get confirmation: %w", err)
+	}
+
+	if !confirm {
+		utils.InfoMessage("Changes not applied")
+		return nil
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	// Write template content to file
+	if err := os.WriteFile(filePath, []byte(templateContent), 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Get repository to stage the file
+	repo, err := git.PlainOpen(".")
 	if err != nil {
 		return fmt.Errorf("failed to open repository: %w", err)
 	}
 
-	w, err := repo.Worktree()
+	// Get working tree
+	wt, err := repo.Worktree()
 	if err != nil {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	err = w.Checkout(&git.CheckoutOptions{
-		Branch: plumbing.ReferenceName("refs/remotes/origin/main"),
-		Force:  true,
-	})
-
+	// Stage the file
+	_, err = wt.Add(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to checkout file: %w", err)
+		return fmt.Errorf("failed to stage file: %w", err)
 	}
 
+	utils.InfoMessage(fmt.Sprintf("Applied changes to %s", filePath))
+
+	// Remember that we applied this change to avoid showing it again
 	return nil
 }

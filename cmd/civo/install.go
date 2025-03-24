@@ -276,7 +276,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")
 	preloadImagesWg.Wait()
 
-	// utils.RemoveCodeVerificationServer(restConfig)
+	utils.RemoveCodeVerificationServer(restConfig)
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
@@ -706,6 +706,7 @@ func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, ch
 
 	// Create a registry client (for pulling OCI charts)
 	regClient, err := registry.NewClient()
+	utils.LogoutHelmRegistry(regClient)
 	if err != nil {
 		return fmt.Errorf("failed to create registry client: %v", err)
 	}
