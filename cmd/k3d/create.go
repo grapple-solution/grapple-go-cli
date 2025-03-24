@@ -77,6 +77,7 @@ func createCluster(cmd *cobra.Command, args []string) error {
 	}
 	createCmd := exec.Command("k3d", createCmdArgs...)
 
+	fmt.Println("createCmd", createCmd.String())
 	createCmd.Stdout = os.Stdout
 	createCmd.Stderr = os.Stderr
 

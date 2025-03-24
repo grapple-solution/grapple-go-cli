@@ -102,7 +102,7 @@ func patchCoreDNS(restConfig *rest.Config) error {
 	utils.InfoMessage("Checking if CoreDNS deployment is ready...")
 
 	// Wait for CoreDNS deployment to be ready
-	err = waitForDeployment(kubeClient, "kube-system", "coredns")
+	err = utils.WaitForDeployment(kubeClient, "kube-system", "coredns")
 	if err != nil {
 		return fmt.Errorf("failed to wait for CoreDNS deployment: %w", err)
 	}
@@ -118,17 +118,6 @@ func patchCoreDNS(restConfig *rest.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to get CoreDNS ConfigMap: %w", err)
 	}
-
-	// // Create backup file
-	// backupData, err := yaml.Marshal(configMap)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal ConfigMap for backup: %w", err)
-	// }
-
-	// if err := os.WriteFile("coredns-backup.yaml", backupData, 0644); err != nil {
-	// 	return fmt.Errorf("failed to write backup file: %w", err)
-	// }
-	// utils.InfoMessage("Backup saved as coredns-backup.yaml")
 
 	// Check if the forward directive is already updated
 	corefile := configMap.Data["Corefile"]

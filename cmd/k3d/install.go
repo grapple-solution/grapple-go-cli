@@ -1,32 +1,15 @@
 package k3d
 
 import (
-	"context"
 	"fmt"
-	"log"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/grapple-solution/grapple_cli/utils" // your logging/prompting
 	"github.com/spf13/cobra"
-	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
-	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/cli/values"
-	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/registry"
-
 	// Helm libraries
-
 	// Kubernetes libraries
-
-	"k8s.io/apimachinery/pkg/api/errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	apiv1 "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 // Variables for command flags
@@ -191,11 +174,18 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	prepareValuesFile()
 
-	valuesFile := "/tmp/values-override.yaml"
+	// deploymentPath, err := utils.GetResourcePath("template-files")
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get deployment path: %w", err)
+	// }
+	deploymentPath := "template-files"
+	valuesFileForK3d := filepath.Join(deploymentPath, "values-k3d.yaml")
+
+	valuesFile := []string{"/tmp/values-override.yaml", valuesFileForK3d}
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-init: %w", err)
@@ -203,7 +193,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf-init to be ready...")
 	logOnFileStart()
-	err = waitForGrsfInit(kubeClient)
+	err = utils.WaitForGrsfInit(kubeClient)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-init not ready: %w", err)
@@ -213,7 +203,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 4) Deploy "grsf"
 	utils.InfoMessage("Deploying 'grsf' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf: %w", err)
@@ -221,7 +211,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf to be ready (checking crossplane providers, etc.)...")
 	logOnFileStart()
-	err = waitForGrsf(kubeClient, "grpl-system")
+	err = utils.WaitForGrsf(kubeClient, "grpl-system")
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf not ready: %w", err)
@@ -231,7 +221,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 5) Deploy "grsf-config"
 	utils.InfoMessage("Deploying 'grsf-config' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFile)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-config: %w", err)
@@ -239,7 +229,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf-config to be applied (CRDs, XRDs, etc.)...")
 	logOnFileStart()
-	err = waitForGrsfConfig(kubeClient, restConfig)
+	err = utils.WaitForGrsfConfig(kubeClient, restConfig)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-config not ready: %w", err)
@@ -249,36 +239,24 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 6) Deploy "grsf-integration"
 	utils.InfoMessage("Deploying 'grsf-integration' chart...")
 	logOnFileStart()
-	if err := helmDeployReleaseWithRetry(kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFile); err != nil {
+	if err := utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFile); err != nil {
 		return fmt.Errorf("failed to deploy grsf-integration: %w", err)
 	}
 
 	utils.InfoMessage("Waiting for grsf-integration to be ready...")
 	logOnFileStart()
-	err = waitForGrsfIntegration(restConfig)
+	err = utils.WaitForGrsfIntegration(restConfig)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-integration not ready: %w", err)
 	}
 	utils.SuccessMessage("grsf-integration is installed.")
 
-	// Step 7) SSL enabling
-	if sslEnable {
-		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.)")
-		logOnFileStart()
-		err = createClusterIssuer(kubeClient)
-		logOnCliAndFileStart()
-		if err != nil {
-			return fmt.Errorf("failed to create clusterissuer: %w", err)
-		}
-		utils.InfoMessage("Successfully created clusterissuer.")
-	}
-
 	// Step 8) If user wants to wait for the entire Grapple system
 	if waitForReady {
 		utils.InfoMessage("Waiting for Grapple to be ready...")
 		logOnFileStart()
-		err = waitForGrappleReady(restConfig)
+		err = utils.WaitForGrappleReady(restConfig)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
@@ -301,239 +279,11 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")
 	preloadImagesWg.Wait()
 
-	err = setupClusterIssuer(context.TODO(), restConfig)
+	err = utils.CreateClusterIssuer(kubeClient, sslEnable)
 	if err != nil {
 		return fmt.Errorf("failed to setup cluster issuer: %w", err)
 	}
 
 	utils.SuccessMessage("Grapple installation completed!")
-	return nil
-}
-
-// waitForDeployment waits for a deployment to be ready
-func waitForDeployment(kubeClient *apiv1.Clientset, namespace, name string) error {
-	for {
-		deployment, err := kubeClient.AppsV1().Deployments(namespace).Get(context.TODO(), name, v1.GetOptions{})
-		if err != nil {
-			return err
-		}
-
-		if deployment.Status.ReadyReplicas == *deployment.Spec.Replicas {
-			return nil
-		}
-
-		utils.InfoMessage(fmt.Sprintf("Waiting for deployment %s in namespace %s to be ready...", name, namespace))
-		time.Sleep(5 * time.Second)
-	}
-}
-
-// getClusterExternalIP waits for and retrieves the external IP of a LoadBalancer service
-func getClusterExternalIP(restConfig *rest.Config, namespace, serviceName string) (string, error) {
-	// Maximum wait time and interval
-	maxWait := 300 * time.Second
-	interval := 5 * time.Second
-	deadline := time.Now().Add(maxWait)
-
-	utils.InfoMessage(fmt.Sprintf("Waiting for the external IP of LoadBalancer '%s' in namespace '%s'", serviceName, namespace))
-
-	// Create client from restConfig
-	clientset, err := apiv1.NewForConfig(restConfig)
-	if err != nil {
-		return "", fmt.Errorf("failed to create kubernetes client: %w", err)
-	}
-
-	for time.Now().Before(deadline) {
-		service, err := clientset.CoreV1().Services(namespace).Get(context.TODO(), serviceName, v1.GetOptions{})
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				return "", fmt.Errorf("failed to get service %s in namespace %s: %w", serviceName, namespace, err)
-			}
-			// Service not found yet, continue waiting
-			fmt.Print(".")
-			time.Sleep(interval)
-			continue
-		}
-
-		// Check if external IP is assigned
-		if len(service.Status.LoadBalancer.Ingress) > 0 {
-			var externalIP string
-			if service.Status.LoadBalancer.Ingress[0].IP != "" {
-				externalIP = service.Status.LoadBalancer.Ingress[0].IP
-			} else if service.Status.LoadBalancer.Ingress[0].Hostname != "" {
-				externalIP = service.Status.LoadBalancer.Ingress[0].Hostname
-			}
-
-			if externalIP != "" {
-				utils.InfoMessage(fmt.Sprintf("\nExternal IP for LoadBalancer '%s': %s", serviceName, externalIP))
-				return externalIP, nil
-			}
-		}
-
-		fmt.Print(".")
-		time.Sleep(interval)
-	}
-
-	return "", fmt.Errorf("timeout: external IP not assigned for service '%s' in namespace '%s' within %v",
-		serviceName, namespace, maxWait)
-}
-
-func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, chartVersion, valuesFile string) error {
-
-	utils.StartSpinner(fmt.Sprintf("Installing/upgrading release %s...", releaseName))
-	defer utils.StopSpinner()
-
-	// check and create namespace if it doesn't exist
-	checkAndCreateNamespace(kubeClient, namespace)
-
-	// Mirrors the Bash variables
-	awsRegistry := "p7h7z5g3"
-
-	// Construct the OCI chart reference without version in URL
-	// Example: "oci://public.ecr.aws/p7h7z5g3/grsf-init"
-	chartRef := fmt.Sprintf("oci://public.ecr.aws/%s/%s", awsRegistry, releaseName)
-
-	utils.InfoMessage(fmt.Sprintf("chartRef: %s", chartRef))
-
-	// Create the Helm settings (used for CLI-based defaults)
-	settings := cli.New()
-	settings.SetNamespace(namespace)
-	// Prepare an action.Configuration, which wires up Helm internals
-	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(
-		settings.RESTClientGetter(),
-		namespace,
-		os.Getenv("HELM_DRIVER"), // defaults to "secret" if empty
-		log.Printf,
-	); err != nil {
-		return fmt.Errorf("failed to initialize Helm action configuration: %v", err)
-	}
-
-	// Create a registry client (for pulling OCI charts)
-	regClient, err := registry.NewClient()
-	if err != nil {
-		return fmt.Errorf("failed to create registry client: %v", err)
-	}
-	actionConfig.RegistryClient = regClient
-
-	// Check if release exists
-	histClient := action.NewHistory(actionConfig)
-	histClient.Max = 1
-	_, err = histClient.Run(releaseName)
-
-	if err != nil {
-		// Release doesn't exist, do install
-		installClient := action.NewInstall(actionConfig)
-		installClient.Namespace = namespace
-		installClient.ReleaseName = releaseName
-		installClient.ChartPathOptions.Version = chartVersion
-		installClient.SkipCRDs = true
-
-		// Locate the chart (pull it if needed) and get a local path
-		chartPath, err := installClient.ChartPathOptions.LocateChart(chartRef, settings)
-		if err != nil {
-			return fmt.Errorf("failed to locate chart from %q: %v", chartRef, err)
-		}
-
-		utils.InfoMessage(fmt.Sprintf("Chartpath %v", chartPath))
-
-		// Load the chart from the local path
-		chartLoaded, err := loader.Load(chartPath)
-		if err != nil {
-			return fmt.Errorf("failed to load chart: %v", err)
-		}
-
-		// deploymentPath, err := utils.GetResourcePath("template-files")
-		// if err != nil {
-		// 	return fmt.Errorf("failed to get deployment path: %w", err)
-		// }
-		deploymentPath := "template-files"
-		valuesFileForK3d := filepath.Join(deploymentPath, "values-k3d.yaml")
-
-		valueOpts := &values.Options{
-			ValueFiles: []string{valuesFile, valuesFileForK3d},
-		}
-		vals, err := valueOpts.MergeValues(getter.All(settings))
-		if err != nil {
-			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
-		}
-
-		utils.InfoMessage("Values from file:")
-		for key, value := range vals {
-			switch v := value.(type) {
-			case map[string]interface{}:
-				utils.InfoMessage(fmt.Sprintf("%s:", key))
-				for subKey, subValue := range v {
-					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
-				}
-			default:
-				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
-			}
-		}
-
-		// Run the install
-		rel, err := installClient.Run(chartLoaded, vals)
-		if err != nil {
-			return fmt.Errorf("failed to install chart %q: %v", chartRef, err)
-		}
-
-		utils.SuccessMessage(fmt.Sprintf("\nSuccessfully installed release %q in namespace %q, chart version: %s",
-			rel.Name, rel.Namespace, rel.Chart.Metadata.Version))
-
-	} else {
-		// Release exists, do upgrade
-		upgradeClient := action.NewUpgrade(actionConfig)
-		upgradeClient.Namespace = namespace
-		upgradeClient.ChartPathOptions.Version = chartVersion
-		upgradeClient.SkipCRDs = true
-
-		// Locate the chart (pull it if needed) and get a local path
-		chartPath, err := upgradeClient.ChartPathOptions.LocateChart(chartRef, settings)
-		if err != nil {
-			return fmt.Errorf("failed to locate chart from %q: %v", chartRef, err)
-		}
-
-		// Load the chart from the local path
-		chartLoaded, err := loader.Load(chartPath)
-		if err != nil {
-			return fmt.Errorf("failed to load chart: %v", err)
-		}
-
-		// deploymentPath, err := utils.GetResourcePath("template-files")
-		// if err != nil {
-		// 	return fmt.Errorf("failed to get deployment path: %w", err)
-		// }
-		deploymentPath := "template-files"
-		valuesFileForK3d := filepath.Join(deploymentPath, "values-k3d.yaml")
-
-		valueOpts := &values.Options{
-			ValueFiles: []string{valuesFile, valuesFileForK3d},
-		}
-		vals, err := valueOpts.MergeValues(getter.All(settings))
-		if err != nil {
-			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
-		}
-
-		utils.InfoMessage("Values from file:")
-		for key, value := range vals {
-			switch v := value.(type) {
-			case map[string]interface{}:
-				utils.InfoMessage(fmt.Sprintf("%s:", key))
-				for subKey, subValue := range v {
-					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
-				}
-			default:
-				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
-			}
-		}
-		// Run the upgrade
-		rel, err := upgradeClient.Run(releaseName, chartLoaded, vals)
-		if err != nil {
-			return fmt.Errorf("failed to upgrade chart %q: %v", chartRef, err)
-		}
-
-		utils.SuccessMessage(fmt.Sprintf("\nSuccessfully upgraded release %q in namespace %q, chart version: %s",
-			rel.Name, rel.Namespace, rel.Chart.Metadata.Version))
-
-	}
 	return nil
 }
