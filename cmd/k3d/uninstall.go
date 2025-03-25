@@ -1,4 +1,4 @@
-package civo
+package k3d
 
 import (
 	"errors"
@@ -24,14 +24,13 @@ This will completely remove all traces of Grapple installation including:
 }
 
 func init() {
-	UninstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, uninstalls grapple from the currently connected Civo cluster. If false, prompts for cluster name and civo region and removes grapple from the specified cluster. Default value of auto-confirm is true")
-	UninstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
-	UninstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
+	UninstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", true, "If true, uninstalls grapple from the currently connected k3d cluster. If false, prompts for cluster name and removes grapple from the specified cluster. Default value of auto-confirm is true")
+	UninstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "k3d cluster name")
 	UninstallCmd.Flags().BoolVarP(&skipConfirmation, "yes", "y", false, "Skip confirmation prompt before uninstalling")
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_uninstall.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_uninstall.log")
 
 	var err error
 
@@ -39,7 +38,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to uninstall grpl, please run cat /tmp/grpl_civo_uninstall.log for more details")
+			utils.ErrorMessage("Failed to uninstall grpl, please run cat /tmp/grpl_k3d_uninstall.log for more details")
 		}
 	}()
 
@@ -59,7 +58,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	}
 
 	// Connect to cluster
-	connectToCivoCluster := func() error {
+	connectToK3dCluster := func() error {
 		err := connectToCluster(cmd, args)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
@@ -72,10 +71,9 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 	_, clientset, err := utils.GetKubernetesConfig()
 	if err != nil {
 		utils.InfoMessage("No existing connection found")
-		err = connectToCivoCluster()
-		if err != nil {
-			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
-			return err
+	} else if autoConfirm {
+		if !getClusterDetailsFromConfig(clientset) {
+			utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for cluster name")
 		}
 	}
 
@@ -84,10 +82,10 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		utils.ErrorMessage(fmt.Sprintf("Failed to get cluster provider type: %v", err))
 		return err
 	}
-	if providerClusterType != utils.ProviderClusterTypeCivo {
-		utils.ErrorMessage("This command is only available for Civo clusters")
-		return errors.New("this command is only available for Civo clusters")
+	if providerClusterType != utils.ProviderClusterTypeK3d {
+		utils.ErrorMessage("This command is only available for K3d clusters")
+		return errors.New("this command is only available for K3d clusters")
 	}
 
-	return utils.UninstallGrapple(connectToCivoCluster, logOnFileStart, logOnCliAndFileStart)
+	return utils.UninstallGrapple(connectToK3dCluster, logOnFileStart, logOnCliAndFileStart)
 }

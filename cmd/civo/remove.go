@@ -41,13 +41,13 @@ func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 		return false
 	}
 	// Check provider type
-	if string(secret.Data[secKeyProviderClusterType]) == providerClusterTypeCivo {
+	if string(secret.Data[utils.SecKeyProviderClusterType]) == utils.ProviderClusterTypeCivo {
 		// Extract cluster name and region if not provided via flags
 		if clusterName == "" {
-			clusterName = string(secret.Data[secKeyClusterName])
+			clusterName = string(secret.Data[utils.SecKeyClusterName])
 		}
 		if civoRegion == "" {
-			civoRegion = string(secret.Data[secKeyCivoRegion])
+			civoRegion = string(secret.Data[utils.SecKeyCivoRegion])
 		}
 		utils.InfoMessage(fmt.Sprintf("Using values from grsf-config: cluster=%s, region=%s", clusterName, civoRegion))
 		return true

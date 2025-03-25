@@ -314,6 +314,20 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 		utils.SuccessMessage("gruim deployment is ready")
 	}
 
+	// Get cluster domain from environment or use default
+	clusterDomain, err := utils.ExtractDomainFromGrplConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to extract cluster domain: %w", err)
+	}
+
+	sslEnabled, err := utils.IsSSLEnabled(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to check SSL status: %w", err)
+	}
+
+	// Display deployment details
+	displayDeploymentDetails(DeploymentNamespace, GrasName, clusterDomain, sslEnabled)
+
 	return nil
 }
 
@@ -342,4 +356,25 @@ func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymen
 		}
 	}
 	return nil
+}
+
+func displayDeploymentDetails(namespace, resourceName, clusterDomain string, sslEnabled bool) {
+
+	if !wait {
+		utils.InfoMessage("It will take a few minutes for the deployment to be ready")
+	}
+
+	httpPrefix := "http"
+	if sslEnabled {
+		httpPrefix = "https"
+	}
+
+	if clusterDomain != "" {
+		utils.InfoMessage("Deployment Details")
+		utils.InfoMessage(fmt.Sprintf("Following resources are deployed in %s namespace", namespace))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: grapi can be accessed at %s://%s-%s-grapi.%s",
+			httpPrefix, namespace, resourceName, clusterDomain))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: gruim can be accessed at %s://%s-%s-gruim.%s",
+			httpPrefix, namespace, resourceName, clusterDomain))
+	}
 }
