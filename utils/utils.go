@@ -725,3 +725,14 @@ func IsSSLEnabled(restClient *rest.Config) (bool, error) {
 
 	return string(sslEnabled) == "true", nil
 }
+
+func GetClusterProviderType(clientset *kubernetes.Clientset) (string, error) {
+
+	// Try to get grsf-config secret
+	secret, err := clientset.CoreV1().Secrets("grpl-system").Get(context.TODO(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get secret: %w", err)
+	}
+
+	return string(secret.Data[SecKeyProviderClusterType]), nil
+}

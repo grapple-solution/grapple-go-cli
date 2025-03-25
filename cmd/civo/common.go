@@ -42,29 +42,6 @@ var (
 	grappleLicense string
 )
 
-const (
-	secKeyEmail               = "email"
-	secKeyOrganization        = "organization"
-	secKeyClusterdomain       = "clusterdomain"
-	secKeyGrapiversion        = "grapiversion"
-	secKeyGruimversion        = "gruimversion"
-	secKeyDev                 = "dev"
-	secKeySsl                 = "ssl"
-	secKeySslissuer           = "sslissuer"
-	secKeyClusterName         = "CLUSTER_NAME"
-	secKeyGrapleDNS           = "GRAPPLE_DNS"
-	secKeyGrapleVersion       = "GRAPPLE_VERSION"
-	secKeyGrapleLicense       = "GRAPPLE_LICENSE"
-	secKeyProviderClusterType = "PROVIDER_CLUSTER_TYPE"
-	secKeyCivoClusterID       = "CIVO_CLUSTER_ID"
-	secKeyCivoRegion          = "CIVO_REGION"
-	secKeyCivoMasterIP        = "CIVO_MASTER_IP"
-)
-
-const (
-	providerClusterTypeCivo = "CIVO"
-)
-
 var (
 	connectToCivoCluster = true
 )

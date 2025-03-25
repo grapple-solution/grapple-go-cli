@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 	apiv1 "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -580,7 +579,7 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 
 	// 1) Wait for the CRDs to show up via discovery
 	found := make(map[string]bool)
-	for attempts := 0; attempts < 30; attempts++ {
+	for attempts := 0; attempts < 50; attempts++ {
 		// Grab the full list of server groups/resources
 		_, resourceLists, err := discoveryClient.ServerGroupsAndResources()
 		if err != nil {
@@ -617,7 +616,7 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 		time.Sleep(time.Second)
 
 		// If we've hit the last attempt and not all are found, error
-		if attempts == 29 {
+		if attempts == 49 {
 			// Checks if for every requiredKind we have found[kind] == true
 			allFound := true
 			for _, r := range requiredKinds {
@@ -838,9 +837,7 @@ func InstallKubeBlocksOnCluster(
 				if err != nil {
 					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
 				}
-				// InfoMessage("Removed failed KubeBlocks release, will attempt fresh install")
 			} else {
-				// InfoMessage("KubeBlocks release already exists, skipping installation")
 				return nil
 			}
 			break
@@ -848,7 +845,7 @@ func InstallKubeBlocksOnCluster(
 	}
 
 	// Create kb-system namespace if it doesn't exist
-	clientset, err := kubernetes.NewForConfig(restConfig)
+	clientset, err := apiv1.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
@@ -865,7 +862,6 @@ func InstallKubeBlocksOnCluster(
 			if err != nil {
 				return fmt.Errorf("failed to create kb-system namespace: %w", err)
 			}
-			// InfoMessage("Created kb-system namespace")
 		} else {
 			return fmt.Errorf("failed to check kb-system namespace: %w", err)
 		}
@@ -900,7 +896,6 @@ func InstallKubeBlocksOnCluster(
 
 		// Skip empty documents
 		if len(obj.Object) == 0 {
-			// InfoMessage("Skipping empty document")
 			continue
 		}
 
@@ -914,8 +909,6 @@ func InstallKubeBlocksOnCluster(
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
 		}
-
-		// InfoMessage(fmt.Sprintf("Created kubeblocks CRDs %s", obj.GetName()))
 	}
 	// Wait a bit for CRDs to be established
 	time.Sleep(10 * time.Second)
@@ -959,7 +952,8 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to download repository index: %w", err)
 	}
 
-	// InfoMessage("Added and updated kubeblocks helm repository")
+	// Suppress wait-related logs
+	helmCfg.Log = func(format string, v ...interface{}) {}
 
 	// 4. Create a Helm install client
 	installClient := action.NewInstall(helmCfg)
@@ -969,7 +963,7 @@ func InstallKubeBlocksOnCluster(
 	installClient.CreateNamespace = true
 	installClient.Timeout = 1200 * time.Second // 20 minute timeout
 	installClient.Version = "0.9.1"
-	installClient.Wait = true
+	installClient.Description = "Installing KubeBlocks"
 
 	// 5. Locate and load the chart
 	chartPath, err := installClient.ChartPathOptions.LocateChart("kubeblocks/kubeblocks", settings)
@@ -981,9 +975,6 @@ func InstallKubeBlocksOnCluster(
 	if err != nil {
 		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
 	}
-
-	// InfoMessage(fmt.Sprintf("release name: %s", installClient.ReleaseName))
-	// InfoMessage(fmt.Sprintf("namespace: %s", installClient.Namespace))
 
 	// Set values to ensure installation in kb-system namespace
 	values := map[string]interface{}{
@@ -1004,7 +995,6 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
 	}
 
-	// SuccessMessage("KubeBlocks installed successfully in namespace kb-system!")
 	return nil
 }
 
@@ -1082,4 +1072,177 @@ func WaitForDeployment(kubeClient *apiv1.Clientset, namespace, name string) erro
 		InfoMessage(fmt.Sprintf("Waiting for deployment %s in namespace %s to be ready...", name, namespace))
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func UninstallGrapple(connectToCluster func() error, logOnFileStart, logOnCliAndFileStart func()) error {
+
+	// Initialize Kubernetes clients
+	settings := cli.New()
+
+	config, clientset, err := GetKubernetesConfig()
+	if err != nil {
+		InfoMessage("No existing connection found")
+		err = connectToCluster()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to connect to cluster: %v", err))
+			return err
+		}
+
+		config, err = settings.RESTClientGetter().ToRESTConfig()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to get REST config: %v", err))
+			return err
+		}
+
+		clientset, err = apiv1.NewForConfig(config)
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to create Kubernetes client: %v", err))
+			return err
+		}
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		ErrorMessage(fmt.Sprintf("Failed to create dynamic client: %v", err))
+		return err
+	}
+
+	InfoMessage("Checking and deleting all Grapple resources across all namespaces...")
+	logOnFileStart()
+
+	// Get all CRDs with grpl in the name
+	InfoMessage("Getting all Grapple CRDs...")
+	crdGVR := schema.GroupVersionResource{
+		Group:    "apiextensions.k8s.io",
+		Version:  "v1",
+		Resource: "customresourcedefinitions",
+	}
+
+	crdList, err := dynamicClient.Resource(crdGVR).List(context.TODO(), v1.ListOptions{})
+	if err != nil {
+		ErrorMessage(fmt.Sprintf("Failed to list CRDs: %v", err))
+		return err
+	}
+
+	// Track unique namespaces that have Grapple resources
+	namespacesToDelete := make(map[string]bool)
+
+	// Delete all CRDs with grpl in the name
+	for _, crd := range crdList.Items {
+		name := crd.GetName()
+		if strings.Contains(strings.ToLower(name), "grpl") {
+			InfoMessage(fmt.Sprintf("Deleting CRD '%s'...", name))
+			err := dynamicClient.Resource(crdGVR).Delete(context.TODO(), name, v1.DeleteOptions{})
+			if err != nil {
+				ErrorMessage(fmt.Sprintf("Failed to delete CRD '%s': %v", name, err))
+			} else {
+				SuccessMessage(fmt.Sprintf("CRD '%s' deleted", name))
+			}
+		}
+	}
+
+	// Delete collected namespaces
+	for namespace := range namespacesToDelete {
+		InfoMessage(fmt.Sprintf("Deleting namespace '%s'...", namespace))
+		err := clientset.CoreV1().Namespaces().Delete(context.TODO(), namespace, v1.DeleteOptions{})
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to delete namespace '%s': %v", namespace, err))
+		} else {
+			SuccessMessage(fmt.Sprintf("Namespace '%s' deleted", namespace))
+		}
+	}
+
+	logOnCliAndFileStart()
+	SuccessMessage("All Grapple resources deleted across all namespaces")
+
+	InfoMessage("Checking and deleting kb-system namespace if it exists...")
+	logOnFileStart()
+
+	// Check and delete kb-system namespace if it exists
+	_, err = clientset.CoreV1().Namespaces().Get(context.TODO(), "kb-system", v1.GetOptions{})
+	if err == nil {
+		InfoMessage("Found kb-system namespace, uninstalling kubeblocks...")
+
+		// Initialize Helm for kb-system
+		settings.SetNamespace("kb-system")
+		actionConfig := new(action.Configuration)
+		if err := actionConfig.Init(settings.RESTClientGetter(), "kb-system", os.Getenv("HELM_DRIVER"), log.Printf); err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to initialize helm config: %v", err))
+		} else {
+			// Uninstall kubeblocks helm release
+			uninstall := action.NewUninstall(actionConfig)
+			_, err := uninstall.Run("kubeblocks")
+			if err != nil {
+				ErrorMessage(fmt.Sprintf("Failed to uninstall kubeblocks: %v", err))
+			} else {
+				SuccessMessage("Kubeblocks uninstalled successfully")
+			}
+		}
+
+		// Delete kb-system namespace
+		InfoMessage("Deleting kb-system namespace...")
+		err = clientset.CoreV1().Namespaces().Delete(context.TODO(), "kb-system", v1.DeleteOptions{})
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to delete kb-system namespace: %v", err))
+		} else {
+			SuccessMessage("kb-system namespace deleted")
+		}
+	}
+
+	logOnCliAndFileStart()
+	SuccessMessage("kubeblocks uninstalled and kb-system namespace deleted successfully")
+
+	// Check if grpl-system namespace exists
+	_, err = clientset.CoreV1().Namespaces().Get(context.TODO(), "grpl-system", v1.GetOptions{})
+	if err == nil {
+		// Initialize Helm for grpl-system
+		settings.SetNamespace("grpl-system")
+		actionConfig := new(action.Configuration)
+		if err := actionConfig.Init(settings.RESTClientGetter(), "grpl-system", os.Getenv("HELM_DRIVER"), log.Printf); err != nil {
+			return fmt.Errorf("failed to initialize helm config: %w", err)
+		}
+
+		// Uninstall Helm releases in reverse order
+		releases := []string{"grsf-integration", "grsf-config", "grsf", "grsf-init"}
+		for _, release := range releases {
+			InfoMessage(fmt.Sprintf("Uninstalling %s...", release))
+			logOnFileStart()
+			uninstall := action.NewUninstall(actionConfig)
+			_, err := uninstall.Run(release)
+			logOnCliAndFileStart()
+			if err != nil {
+				ErrorMessage(fmt.Sprintf("Failed to uninstall %s: %v", release, err))
+				// Continue with other releases even if one fails
+			} else {
+				SuccessMessage(fmt.Sprintf("%s uninstalled successfully", release))
+			}
+		}
+
+		// Delete grpl-system namespace
+		InfoMessage("Deleting grpl-system namespace...")
+		logOnFileStart()
+		err = clientset.CoreV1().Namespaces().Delete(context.TODO(), "grpl-system", v1.DeleteOptions{})
+		logOnCliAndFileStart()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Failed to delete namespace: %v", err))
+		} else {
+			SuccessMessage("Namespace deleted successfully")
+		}
+
+		// Wait for namespace deletion
+		InfoMessage("Waiting for namespace deletion to complete...")
+		deadline := time.Now().Add(2 * time.Minute)
+		for time.Now().Before(deadline) {
+			_, err := clientset.CoreV1().Namespaces().Get(context.TODO(), "grpl-system", v1.GetOptions{})
+			if err != nil {
+				break
+			}
+			time.Sleep(5 * time.Second)
+		}
+	} else {
+		InfoMessage("grpl-system namespace not found, skipping uninstallation steps")
+	}
+
+	SuccessMessage("Grapple uninstallation completed!")
+	return nil
 }

@@ -272,15 +272,14 @@ func configureDNSForLinux() error {
 	if err := exec.Command("sudo", "systemctl", "stop", "systemd-resolved").Run(); err != nil {
 		utils.InfoMessage("Failed to stop systemd-resolved, continuing anyway")
 	}
+
 	if err := exec.Command("sudo", "systemctl", "restart", "dnsmasq").Run(); err != nil {
+		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error presist then please restart your system and try again")
 		return fmt.Errorf("failed to restart dnsmasq: %w", err)
 	}
 	if err := exec.Command("sudo", "systemctl", "enable", "dnsmasq").Run(); err != nil {
 		return fmt.Errorf("failed to enable dnsmasq: %w", err)
 	}
-	// if err := exec.Command("sudo", "systemctl", "restart", "NetworkManager").Run(); err != nil {
-	// 	utils.InfoMessage("Failed to restart NetworkManager, continuing anyway")
-	// }
 
 	return nil
 }
@@ -316,6 +315,7 @@ func configureDNSForMacOS() error {
 		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
 	if err := exec.Command("sudo", "brew", "services", "restart", "dnsmasq").Run(); err != nil {
+		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error presist then please restart your system and try again")
 		return fmt.Errorf("failed to restart dnsmasq: %w", err)
 	}
 	if err := exec.Command("sudo", "mkdir", "-p", "/etc/resolver").Run(); err != nil {

@@ -7,28 +7,46 @@ import (
 	"runtime"
 )
 
-var OSType = ""
+const (
+	brewPackageManager  = "brew"
+	aptPackageManager   = "apt"
+	dnfPackageManager   = "dnf"
+	chocoPackageManager = "choco"
+
+	linuxOS   = "linux"
+	darwinOS  = "darwin"
+	windowsOS = "windows"
+)
+
+var PackageInstaller = ""
 
 func init() {
-	// Check if OSType is set as environment variable
-	if envOSType := os.Getenv("OSTYPE"); envOSType != "" {
-		OSType = envOSType
+	// Check if PackageInstaller is set as environment variable
+	if envPackageInstaller := os.Getenv("PackageInstaller"); envPackageInstaller != "" {
+		PackageInstaller = envPackageInstaller
 	} else {
-		// If not set in env, determine from runtime
+		// If not set in env, determine default based on OS
 		switch runtime.GOOS {
-		case "darwin":
-			OSType = "mac"
-		case "linux":
-			OSType = "linux"
-		case "windows":
-			OSType = "windows"
+		case darwinOS:
+			PackageInstaller = brewPackageManager
+		case linuxOS:
+			// Try to detect package manager
+			if _, err := exec.LookPath(aptPackageManager); err == nil {
+				PackageInstaller = aptPackageManager
+			} else if _, err := exec.LookPath(dnfPackageManager); err == nil {
+				PackageInstaller = dnfPackageManager
+			}
+		case windowsOS:
+			PackageInstaller = chocoPackageManager
 		}
+		InfoMessage(fmt.Sprintf("PackageInstaller not set, will be using detected '%s' (if required). You can set PackageInstaller env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
+
 	}
 }
 
 // AuthSudo authenticates sudo once to avoid repeated password prompts
 func AuthSudo() error {
-	if OSType == "windows" {
+	if runtime.GOOS == windowsOS {
 		return nil // No sudo needed on Windows
 	}
 	cmd := exec.Command("sudo", "-v")
@@ -51,15 +69,14 @@ func InstallDevspace() error {
 
 	InfoMessage("Installing Devspace CLI...")
 	var cmd *exec.Cmd
-	switch OSType {
-	case "mac":
-		cmd = exec.Command("brew", "install", "devspace")
-	case "linux":
-		// Authenticate sudo once before operations that need it
+
+	switch PackageInstaller {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "devspace")
+	case aptPackageManager, dnfPackageManager:
 		if err := AuthSudo(); err != nil {
 			return err
 		}
-
 		// Download devspace binary
 		downloadCmd := exec.Command("curl", "-L", "-o", "devspace",
 			"https://github.com/loft-sh/devspace/releases/latest/download/devspace-linux-amd64")
@@ -73,7 +90,7 @@ func InstallDevspace() error {
 
 		// Install binary to /usr/local/bin with correct permissions
 		cmd = exec.Command("sudo", "install", "-c", "-m", "0755", "devspace", "/usr/local/bin")
-	case "windows":
+	case chocoPackageManager:
 		// Download devspace binary for Windows
 		downloadCmd := exec.Command("powershell", "-Command",
 			"Invoke-WebRequest -Uri https://github.com/loft-sh/devspace/releases/latest/download/devspace-windows-amd64.exe -OutFile devspace.exe")
@@ -89,7 +106,7 @@ func InstallDevspace() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Move-Item -Force devspace.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
+		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
 	}
 
 	StartSpinner("Installing Devspace CLI, It will take a few minutes...")
@@ -111,11 +128,10 @@ func InstallTaskCLI() error {
 	InfoMessage("Installing Task CLI...")
 
 	var cmd *exec.Cmd
-	switch OSType {
-	case "mac":
-		cmd = exec.Command("brew", "install", "go-task/tap/go-task")
-	case "linux":
-		// Authenticate sudo once before operations that need it
+	switch PackageInstaller {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "go-task/tap/go-task")
+	case aptPackageManager, dnfPackageManager:
 		if err := AuthSudo(); err != nil {
 			return err
 		}
@@ -124,7 +140,7 @@ func InstallTaskCLI() error {
 		tar xz -C /tmp && \
 		sudo mv /tmp/task /usr/local/bin/
 	  `)
-	case "windows":
+	case chocoPackageManager:
 		// Download Task binary for Windows
 		downloadCmd := exec.Command("powershell", "-Command",
 			"Invoke-WebRequest -Uri https://github.com/go-task/task/releases/latest/download/task_windows_amd64.zip -OutFile task.zip")
@@ -140,7 +156,7 @@ func InstallTaskCLI() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Expand-Archive -Path task.zip -DestinationPath $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\ -Force")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
+		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
 	}
 
 	StartSpinner("Installing Task CLI, It will take a few minutes...")
@@ -161,11 +177,10 @@ func InstallYq() error {
 	InfoMessage("Installing Yq CLI...")
 
 	var cmd *exec.Cmd
-	switch OSType {
-	case "mac":
-		cmd = exec.Command("brew", "install", "yq")
-	case "linux":
-		// Authenticate sudo once before operations that need it
+	switch PackageInstaller {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "yq")
+	case aptPackageManager, dnfPackageManager:
 		if err := AuthSudo(); err != nil {
 			return err
 		}
@@ -184,7 +199,7 @@ func InstallYq() error {
 
 		// Set executable permissions
 		cmd = exec.Command("sudo", "chmod", "+x", "/usr/bin/yq")
-	case "windows":
+	case chocoPackageManager:
 		// Download yq binary for Windows
 		downloadCmd := exec.Command("powershell", "-Command",
 			"Invoke-WebRequest -Uri https://github.com/mikefarah/yq/releases/latest/download/yq_windows_amd64.exe -OutFile yq.exe")
@@ -200,7 +215,7 @@ func InstallYq() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Move-Item -Force yq.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
+		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
 	}
 
 	StartSpinner("Installing Yq CLI, It will take a few minutes...")
@@ -221,23 +236,19 @@ func InstallK3d() error {
 	InfoMessage("Installing K3d CLI...")
 
 	var cmd *exec.Cmd
-	switch OSType {
-	case "mac":
-		cmd = exec.Command("brew", "install", "k3d")
-	case "linux":
-		// Authenticate sudo once before operations that need it
+	switch PackageInstaller {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "k3d")
+	case aptPackageManager, dnfPackageManager:
 		if err := AuthSudo(); err != nil {
 			return err
 		}
-
-		// Use bash to properly handle the pipe with the installation script
 		cmd = exec.Command("bash", "-c", "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
-	case "windows":
-		// Download k3d binary for Windows using the official installation script
+	case chocoPackageManager:
 		cmd = exec.Command("powershell", "-Command",
 			"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -OutFile install-k3d.ps1; ./install-k3d.ps1")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
+		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
 	}
 
 	StartSpinner("Installing K3d CLI, It will take a few minutes...")
@@ -255,20 +266,24 @@ func InstallDnsmasq() error {
 		return nil // Already installed
 	}
 
-	InfoMessage("Installing Dnsmasq...")
-
 	var cmd *exec.Cmd
-	switch OSType {
-	case "mac":
-		cmd = exec.Command("brew", "install", "dnsmasq")
-	case "linux":
-		// Authenticate sudo once before operations that need it
+	switch PackageInstaller {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "dnsmasq")
+	case aptPackageManager:
 		if err := AuthSudo(); err != nil {
 			return err
 		}
-		cmd = exec.Command("sudo", "apt-get", "install", "-y", "dnsmasq")
+		cmd = exec.Command("sudo", aptPackageManager, "install", "-y", "dnsmasq")
+	case dnfPackageManager:
+		if err := AuthSudo(); err != nil {
+			return err
+		}
+		cmd = exec.Command("sudo", dnfPackageManager, "install", "-y", "dnsmasq")
+	case chocoPackageManager:
+		cmd = exec.Command(chocoPackageManager, "install", "-y", "dnsmasq")
 	default:
-		return fmt.Errorf("unsupported operating system: %s", OSType)
+		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
 	}
 
 	StartSpinner("Installing Dnsmasq, It will take a few minutes...")

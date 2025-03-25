@@ -26,6 +26,9 @@ func init() {
 	K3dCmd.AddCommand(ConnectCmd)
 	K3dCmd.AddCommand(InstallCmd)
 	K3dCmd.AddCommand(PatchCmd)
+	K3dCmd.AddCommand(CreateInstallCmd)
+	K3dCmd.AddCommand(RemoveCmd)
+	K3dCmd.AddCommand(UninstallCmd)
 	utils.InstallK3d()
 	// Here you will define your flags and configuration settings.
 
