@@ -341,7 +341,7 @@ func prepareValuesFile() error {
 		"clusterdomain": completeDomain,
 		"config": map[string]interface{}{
 			// Common fields
-			utils.SecKeyEmail:               email,
+			utils.SecKeyEmail:               "test@gmail.com",
 			utils.SecKeyOrganization:        organization,
 			utils.SecKeyClusterdomain:       completeDomain,
 			utils.SecKeyGrapiversion:        "0.0.1",
