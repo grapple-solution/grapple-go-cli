@@ -97,6 +97,27 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to wait for cluster to be ready: %v", err)
 	}
 
+	// Check if flag was not set and not explicitly false
+	if !cmd.Flags().Changed("install-kubeblocks") && !installKubeblocks {
+		// Ask user if they want to install KubeBlocks
+		confirmMsg := "Do you want to install KubeBlocks? (y/N): "
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) == "y" {
+			installKubeblocks = true
+		}
+	}
+
+	if installKubeblocks {
+		if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
+			utils.ErrorMessage("kubeblocks installation error: " + err.Error())
+		} else {
+			utils.InfoMessage("kubeblocks installed.")
+		}
+	}
+
 	// Setup local DNS configuration
 	utils.InfoMessage("Setting up local DNS configuration...")
 
@@ -119,38 +140,6 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			utils.InfoMessage("grapple images preloaded.")
 		}
 	}()
-
-	// If user wants to install Kubeblocks in background:
-	var kubeblocksWg sync.WaitGroup
-	kubeblocksInstallStatus := true
-	var kubeblocksInstallError error
-
-	// Check if flag was not set and not explicitly false
-	if !cmd.Flags().Changed("install-kubeblocks") && !installKubeblocks {
-		// Ask user if they want to install KubeBlocks
-		confirmMsg := "Do you want to install KubeBlocks? (y/N): "
-		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
-		if err != nil {
-			return err
-		}
-		if strings.ToLower(confirmed) == "y" {
-			installKubeblocks = true
-		}
-	}
-
-	if installKubeblocks {
-		kubeblocksWg.Add(1)
-		go func() {
-			defer kubeblocksWg.Done()
-			if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
-				utils.ErrorMessage("kubeblocks installation error: " + err.Error())
-				kubeblocksInstallStatus = false
-				kubeblocksInstallError = err
-			} else {
-				utils.InfoMessage("kubeblocks installed.")
-			}
-		}()
-	}
 
 	prepareValuesFile()
 
@@ -179,7 +168,6 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("grsf-init not ready: %w", err)
 	}
 	utils.SuccessMessage("grsf-init is installed and ready.")
-
 	// Step 4) Deploy "grsf"
 	utils.InfoMessage("Deploying 'grsf' chart...")
 	logOnFileStart()
@@ -242,18 +230,6 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
 		}
 		utils.SuccessMessage("Grapple is ready!")
-	}
-
-	if installKubeblocks {
-		utils.InfoMessage("Waiting for kubeblocks to be ready, it might take a while...")
-		logOnFileStart()
-		kubeblocksWg.Wait()
-		logOnCliAndFileStart()
-		if kubeblocksInstallStatus {
-			utils.SuccessMessage("Kubeblocks installation completed!")
-		} else {
-			utils.ErrorMessage("Kubeblocks installation failed! with error: " + kubeblocksInstallError.Error())
-		}
 	}
 
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")

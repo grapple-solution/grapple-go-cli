@@ -850,6 +850,7 @@ func InstallKubeBlocksOnCluster(
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
+	InfoMessage("Checking if kb-system namespace exists...")
 	_, err = clientset.CoreV1().Namespaces().Get(context.Background(), "kb-system", v1.GetOptions{})
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -858,6 +859,7 @@ func InstallKubeBlocksOnCluster(
 					Name: "kb-system",
 				},
 			}
+			InfoMessage("Creating kb-system namespace...")
 			_, err = clientset.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to create kb-system namespace: %w", err)
@@ -867,6 +869,7 @@ func InstallKubeBlocksOnCluster(
 		}
 	}
 
+	InfoMessage("Installing KubeBlocks CRDs...")
 	// 1. Create CRDs first
 	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.1/kubeblocks_crds.yaml"
 
@@ -910,6 +913,8 @@ func InstallKubeBlocksOnCluster(
 			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
 		}
 	}
+
+	InfoMessage("Waiting for CRDs to be established...")
 	// Wait a bit for CRDs to be established
 	time.Sleep(10 * time.Second)
 
@@ -953,7 +958,7 @@ func InstallKubeBlocksOnCluster(
 	}
 
 	// Suppress wait-related logs
-	helmCfg.Log = func(format string, v ...interface{}) {}
+	// helmCfg.Log = func(format string, v ...interface{}) {}
 
 	// 4. Create a Helm install client
 	installClient := action.NewInstall(helmCfg)
@@ -963,14 +968,17 @@ func InstallKubeBlocksOnCluster(
 	installClient.CreateNamespace = true
 	installClient.Timeout = 1200 * time.Second // 20 minute timeout
 	installClient.Version = "0.9.1"
+	// installClient.Wait = true
 	installClient.Description = "Installing KubeBlocks"
 
 	// 5. Locate and load the chart
+	InfoMessage("Locating KubeBlocks chart...")
 	chartPath, err := installClient.ChartPathOptions.LocateChart("kubeblocks/kubeblocks", settings)
 	if err != nil {
 		return fmt.Errorf("failed to locate KubeBlocks chart: %w", err)
 	}
 
+	InfoMessage("Loading KubeBlocks chart...")
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
 		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
@@ -991,6 +999,7 @@ func InstallKubeBlocksOnCluster(
 			"repository": "apecloud/kubeblocks-tools",
 		},
 	}
+	InfoMessage("Installing KubeBlocks chart...")
 	if _, err := installClient.Run(chartRequested, values); err != nil {
 		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
 	}
