@@ -39,7 +39,6 @@ func init() {
 		case windowsOS:
 			PackageInstaller = chocoPackageManager
 		}
-		InfoMessage(fmt.Sprintf("PackageInstaller not set, will be using detected '%s' (if required). You can set PackageInstaller env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
 
 	}
 }
@@ -60,6 +59,10 @@ func AuthSudo() error {
 	return nil
 }
 
+func displayPackageInstallerMessage() {
+	InfoMessage(fmt.Sprintf("PackageInstaller not set, will be using detected '%s' (if required). You can set PackageInstaller env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
+}
+
 func InstallDevspace() error {
 	if _, err := exec.LookPath("devspace"); err == nil {
 		return nil // Already installed
@@ -67,6 +70,7 @@ func InstallDevspace() error {
 
 	defer StopSpinner()
 
+	displayPackageInstallerMessage()
 	InfoMessage("Installing Devspace CLI...")
 	var cmd *exec.Cmd
 
@@ -125,8 +129,8 @@ func InstallTaskCLI() error {
 		return nil // Already installed
 	}
 
+	displayPackageInstallerMessage()
 	InfoMessage("Installing Task CLI...")
-
 	var cmd *exec.Cmd
 	switch PackageInstaller {
 	case brewPackageManager:
@@ -174,8 +178,8 @@ func InstallYq() error {
 		return nil // Already installed
 	}
 
+	displayPackageInstallerMessage()
 	InfoMessage("Installing Yq CLI...")
-
 	var cmd *exec.Cmd
 	switch PackageInstaller {
 	case brewPackageManager:
@@ -233,8 +237,8 @@ func InstallK3d() error {
 		return nil // Already installed
 	}
 
+	displayPackageInstallerMessage()
 	InfoMessage("Installing K3d CLI...")
-
 	var cmd *exec.Cmd
 	switch PackageInstaller {
 	case brewPackageManager:
@@ -266,6 +270,7 @@ func InstallDnsmasq() error {
 		return nil // Already installed
 	}
 
+	displayPackageInstallerMessage()
 	var cmd *exec.Cmd
 	switch PackageInstaller {
 	case brewPackageManager:
