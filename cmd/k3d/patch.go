@@ -285,7 +285,7 @@ func configureDNSForMacOS() error {
 	}
 
 	// Create resolver file
-	resolverContent := "nameserver 127.0.0.1\nnameserver 8.8.8.8"
+	resolverContent := "nameserver 127.0.0.1"
 	if err := os.WriteFile("/tmp/resolver-grpl-k3d.dev", []byte(resolverContent), 0644); err != nil {
 		return fmt.Errorf("failed to create temporary resolver file: %w", err)
 	}
