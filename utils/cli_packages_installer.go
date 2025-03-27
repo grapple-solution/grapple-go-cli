@@ -22,7 +22,7 @@ var PackageInstaller = ""
 
 func init() {
 	// Check if PackageInstaller is set as environment variable
-	if envPackageInstaller := os.Getenv("PackageInstaller"); envPackageInstaller != "" {
+	if envPackageInstaller := os.Getenv("PACKAGE_INSTALLER"); envPackageInstaller != "" {
 		PackageInstaller = envPackageInstaller
 	} else {
 		// If not set in env, determine default based on OS
@@ -45,7 +45,7 @@ func init() {
 
 // AuthSudo authenticates sudo once to avoid repeated password prompts
 func AuthSudo() error {
-	if runtime.GOOS == windowsOS {
+	if PackageInstaller != aptPackageManager && PackageInstaller != dnfPackageManager {
 		return nil // No sudo needed on Windows
 	}
 	cmd := exec.Command("sudo", "-v")
@@ -60,7 +60,7 @@ func AuthSudo() error {
 }
 
 func displayPackageInstallerMessage() {
-	InfoMessage(fmt.Sprintf("PackageInstaller not set, will be using detected '%s' (if required). You can set PackageInstaller env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
+	InfoMessage(fmt.Sprintf("PACKAGE_INSTALLER not set, will be using detected '%s'. You can set PACKAGE_INSTALLER env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
 }
 
 func InstallDevspace() error {
