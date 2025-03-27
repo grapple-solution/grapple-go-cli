@@ -273,7 +273,7 @@ func configureDNSForMacOS() error {
 		}
 	}
 
-	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/usr/local/etc/dnsmasq.conf").Run(); err != nil {
+	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/opt/homebrew/etc/dnsmasq.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
 	if err := exec.Command("brew", "services", "restart", "dnsmasq").Run(); err != nil {
