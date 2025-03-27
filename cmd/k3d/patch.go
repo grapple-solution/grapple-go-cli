@@ -110,39 +110,6 @@ func patchCoreDNS(restConfig *rest.Config) error {
 
 	// Variables
 	namespace := "kube-system"
-	configMapName := "coredns"
-
-	// Backup the current ConfigMap
-	utils.InfoMessage("Backing up the current CoreDNS ConfigMap...")
-	configMap, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.TODO(), configMapName, v1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get CoreDNS ConfigMap: %w", err)
-	}
-
-	// Check if the forward directive is already updated
-	corefile := configMap.Data["Corefile"]
-	if !strings.Contains(corefile, "forward . 8.8.8.8 8.8.4.4") {
-		// Update the ConfigMap by replacing the forward directive
-		updatedCorefile := strings.Replace(
-			corefile,
-			"forward . /etc/resolv.conf",
-			"forward . 8.8.8.8 8.8.4.4",
-			-1,
-		)
-
-		if updatedCorefile == corefile {
-			return fmt.Errorf("failed to update CoreDNS ConfigMap: forward directive not found")
-		}
-
-		configMap.Data["Corefile"] = updatedCorefile
-
-		// Update the ConfigMap
-		_, err = kubeClient.CoreV1().ConfigMaps(namespace).Update(context.TODO(), configMap, v1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update CoreDNS ConfigMap: %w", err)
-		}
-		utils.InfoMessage("CoreDNS ConfigMap updated successfully")
-	}
 
 	// Create custom CoreDNS ConfigMap
 	dockerAPIGateway := clusterIP
@@ -216,7 +183,6 @@ func patchCoreDNS(restConfig *rest.Config) error {
 
 func configureDNSForLinux() error {
 
-	utils.AuthSudo()
 	// Create resolv.conf file
 	resolvContent := "nameserver 127.0.0.1\nnameserver 8.8.8.8"
 	if err := os.WriteFile("/tmp/resolv.conf", []byte(resolvContent), 0644); err != nil {
@@ -292,7 +258,7 @@ func configureDNSForMacOS() error {
 	}
 
 	// Display commands to be executed
-	commandsToRun := "sudo brew install dnsmasq && sudo cp /tmp/dnsmasq.conf /usr/local/etc/dnsmasq.conf && sudo brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\" | sudo tee /etc/resolver/grpl-k3d.dev"
+	commandsToRun := "sudo cp /tmp/dnsmasq.conf /usr/local/etc/dnsmasq.conf && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\" | sudo tee /etc/resolver/grpl-k3d.dev"
 	utils.InfoMessage("Going to run following commands:")
 	fmt.Println(commandsToRun)
 
@@ -307,14 +273,10 @@ func configureDNSForMacOS() error {
 		}
 	}
 
-	// Execute the commands
-	if err := exec.Command("sudo", "brew", "install", "dnsmasq").Run(); err != nil {
-		utils.InfoMessage("Failed to install dnsmasq, it might already be installed")
-	}
 	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/usr/local/etc/dnsmasq.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
-	if err := exec.Command("sudo", "brew", "services", "restart", "dnsmasq").Run(); err != nil {
+	if err := exec.Command("brew", "services", "restart", "dnsmasq").Run(); err != nil {
 		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error presist then please restart your system and try again")
 		return fmt.Errorf("failed to restart dnsmasq: %w", err)
 	}

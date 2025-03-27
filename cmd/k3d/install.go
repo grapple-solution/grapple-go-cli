@@ -2,6 +2,7 @@ package k3d
 
 import (
 	"context"
+	goErrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,8 +74,12 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	if clusterName == "" {
-		utils.ErrorMessage("Cluster name is required")
-		return fmt.Errorf("cluster name is required")
+		result, err := utils.PromptInput("Enter cluster name", utils.DefaultValue, utils.NonEmptyValueRegex)
+		if err != nil {
+			utils.ErrorMessage("Cluster name is required")
+			return goErrors.New("cluster name is required")
+		}
+		clusterName = result
 	}
 
 	grappleDNS = "grpl-k3d.dev"

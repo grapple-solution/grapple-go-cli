@@ -28,6 +28,8 @@ func init() {
 
 // Function to handle the "connect" command logic
 func connectToCluster(cmd *cobra.Command, args []string) error {
+	utils.InstallK3d()
+
 	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_connect.log")
 
 	var err error
