@@ -43,22 +43,6 @@ func init() {
 	}
 }
 
-// AuthSudo authenticates sudo once to avoid repeated password prompts
-func AuthSudo() error {
-	if PackageInstaller != aptPackageManager && PackageInstaller != dnfPackageManager {
-		return nil // No sudo needed on Windows
-	}
-	cmd := exec.Command("sudo", "-v")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		ErrorMessage(fmt.Sprintf("Error authenticating sudo: %v", err))
-		return fmt.Errorf("error authenticating sudo: %w", err)
-	}
-	return nil
-}
-
 func displayPackageInstallerMessage() {
 	InfoMessage(fmt.Sprintf("PACKAGE_INSTALLER not set, will be using detected '%s'. You can set PACKAGE_INSTALLER env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
 }
@@ -78,9 +62,7 @@ func InstallDevspace() error {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "devspace")
 	case aptPackageManager, dnfPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
+
 		// Download devspace binary
 		downloadCmd := exec.Command("curl", "-L", "-o", "devspace",
 			"https://github.com/loft-sh/devspace/releases/latest/download/devspace-linux-amd64")
@@ -136,9 +118,7 @@ func InstallTaskCLI() error {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "go-task/tap/go-task")
 	case aptPackageManager, dnfPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
+
 		cmd = exec.Command("sh", "-c", `
 		curl -sL https://github.com/go-task/task/releases/latest/download/task_linux_amd64.tar.gz | \
 		tar xz -C /tmp && \
@@ -185,9 +165,6 @@ func InstallYq() error {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "yq")
 	case aptPackageManager, dnfPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
 
 		// Download yq binary using curl
 		downloadCmd := exec.Command("sh", "-c", `
@@ -244,9 +221,7 @@ func InstallK3d() error {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "k3d")
 	case aptPackageManager, dnfPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
+
 		cmd = exec.Command("bash", "-c", "curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash")
 	case chocoPackageManager:
 		cmd = exec.Command("powershell", "-Command",
@@ -276,14 +251,10 @@ func InstallDnsmasq() error {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "dnsmasq")
 	case aptPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
+
 		cmd = exec.Command("sudo", aptPackageManager, "install", "-y", "dnsmasq")
 	case dnfPackageManager:
-		if err := AuthSudo(); err != nil {
-			return err
-		}
+
 		cmd = exec.Command("sudo", dnfPackageManager, "install", "-y", "dnsmasq")
 	case chocoPackageManager:
 		cmd = exec.Command(chocoPackageManager, "install", "-y", "dnsmasq")
