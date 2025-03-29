@@ -19,6 +19,7 @@ const (
 )
 
 var PackageManager = ""
+var messagedPrinted = false
 
 func init() {
 	// Check if PackageManager is set as environment variable
@@ -44,7 +45,10 @@ func init() {
 }
 
 func displayPackageInstallerMessage() {
-	InfoMessage(fmt.Sprintf("PACKAGE_MANAGER not set, will be using detected '%s'. You can set PACKAGE_MANAGER env var to: brew, apt, dnf, or choco for specific package manager. Note: The package manager you specify must be installed on your system.", PackageManager))
+	if !messagedPrinted {
+		InfoMessage(fmt.Sprintf("PACKAGE_MANAGER not set, will be using detected '%s'. You can set PACKAGE_MANAGER env var to: brew, apt, dnf, or choco for specific package manager. Note: The package manager you specify must be installed on your system.", PackageManager))
+		messagedPrinted = true
+	}
 }
 
 func InstallDevspace() error {
@@ -271,7 +275,6 @@ func InstallDnsmasq() error {
 	SuccessMessage("Dnsmasq installed successfully")
 	return nil
 }
-
 func InstallMkcert() error {
 	if _, err := exec.LookPath("mkcert"); err == nil {
 		return nil // Already installed
@@ -279,26 +282,59 @@ func InstallMkcert() error {
 
 	displayPackageInstallerMessage()
 	InfoMessage("Installing Mkcert...")
-	var cmd *exec.Cmd
+
+	var err error
 	switch PackageManager {
 	case brewPackageManager:
-		cmd = exec.Command(brewPackageManager, "install", "mkcert")
-	case aptPackageManager:
-		cmd = exec.Command("sudo", aptPackageManager, "install", "-y", "mkcert")
-	case dnfPackageManager:
-		cmd = exec.Command("sudo", dnfPackageManager, "install", "-y", "mkcert")
+		// Install mkcert
+		cmd := exec.Command(brewPackageManager, "install", "mkcert")
+		if err = cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing mkcert: %v", err))
+			return fmt.Errorf("error installing mkcert: %w", err)
+		}
+
+		// Install nss
+		cmd = exec.Command(brewPackageManager, "install", "nss")
+		if err = cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing nss: %v", err))
+			return fmt.Errorf("error installing nss: %w", err)
+		}
+
+	case aptPackageManager, dnfPackageManager:
+		// Check if brew is available
+		if _, err := exec.LookPath("brew"); err != nil {
+			ErrorMessage("Mkcert can only be installed using Homebrew. Please install Homebrew first.")
+			return fmt.Errorf("brew is required to install mkcert")
+		}
+		InfoMessage("Mkcert can only be installed using Homebrew, proceeding with brew installation...")
+
+		// Install mkcert
+		cmd := exec.Command("brew", "install", "mkcert")
+		if err = cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing mkcert: %v", err))
+			return fmt.Errorf("error installing mkcert: %w", err)
+		}
+
+		// Install nss
+		cmd = exec.Command("brew", "install", "nss")
+		if err = cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing nss: %v", err))
+			return fmt.Errorf("error installing nss: %w", err)
+		}
+
 	case chocoPackageManager:
-		cmd = exec.Command(chocoPackageManager, "install", "-y", "mkcert")
+		cmd := exec.Command(chocoPackageManager, "install", "-y", "mkcert")
+		StartSpinner("Installing Mkcert, It will take a few minutes...")
+		if err = cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing mkcert: %v", err))
+			return fmt.Errorf("error installing mkcert: %w", err)
+		}
+		StopSpinner()
+
 	default:
 		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
-	StartSpinner("Installing Mkcert, It will take a few minutes...")
-	if err := cmd.Run(); err != nil {
-		ErrorMessage(fmt.Sprintf("Error installing mkcert: %v", err))
-		return fmt.Errorf("error installing mkcert: %w", err)
-	}
-	StopSpinner()
 	SuccessMessage("Mkcert installed successfully")
 	return nil
 }
