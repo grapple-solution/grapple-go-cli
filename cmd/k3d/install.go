@@ -2,7 +2,7 @@ package k3d
 
 import (
 	"context"
-	goErrors "errors"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,14 +75,37 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	if clusterName == "" {
-		result, err := utils.PromptInput("Enter cluster name", utils.DefaultValue, utils.NonEmptyValueRegex)
+		// Get list of k3d clusters
+		output, err := exec.Command("k3d", "cluster", "list", "-o", "json").Output()
 		if err != nil {
-			utils.ErrorMessage("Cluster name is required")
-			return goErrors.New("cluster name is required")
+			utils.ErrorMessage(fmt.Sprintf("Failed to list clusters: %v", err))
+			return err
+		}
+
+		// Parse the JSON output to get cluster names
+		var clusters []K3dCluster
+		if err := json.Unmarshal(output, &clusters); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to parse clusters: %v", err))
+			return err
+		}
+
+		if len(clusters) == 0 {
+			utils.ErrorMessage("No k3d clusters found")
+			return fmt.Errorf("no k3d clusters found")
+		}
+
+		var clusterNames []string
+		for _, cluster := range clusters {
+			clusterNames = append(clusterNames, cluster.Name)
+		}
+
+		result, err := utils.PromptSelect("Select cluster to remove", clusterNames)
+		if err != nil {
+			utils.ErrorMessage("Cluster selection is required")
+			return fmt.Errorf("cluster selection is required")
 		}
 		clusterName = result
 	}
-
 	grappleDNS = "grpl-k3d.dev"
 
 	if grappleVersion == "" || grappleVersion == "latest" {
