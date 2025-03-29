@@ -427,8 +427,15 @@ func setupClusterIssuer(ctx context.Context, restConfig *rest.Config) error {
 			utils.InfoMessage(fmt.Sprintf("Files found in %s", linuxDir))
 			caPath = linuxDir
 		} else {
-			if err := askAndCreateMkcert(ctx, restConfig); err != nil {
+			if err := askAndCreateMkcert(); err != nil {
 				return fmt.Errorf("failed to create mkcert CA secret: %w", err)
+			}
+			if fileExists(filepath.Join(macDir, crt)) && fileExists(filepath.Join(macDir, key)) {
+				utils.InfoMessage(fmt.Sprintf("Files found in %s", macDir))
+				caPath = macDir
+			} else if fileExists(filepath.Join(linuxDir, crt)) && fileExists(filepath.Join(linuxDir, key)) {
+				utils.InfoMessage(fmt.Sprintf("Files found in %s", linuxDir))
+				caPath = linuxDir
 			}
 		}
 
@@ -549,7 +556,7 @@ func setupClusterIssuer(ctx context.Context, restConfig *rest.Config) error {
 	return nil
 }
 
-func askAndCreateMkcert(ctx context.Context, restConfig *rest.Config) error {
+func askAndCreateMkcert() error {
 	utils.InfoMessage("Mkcert secrets not found. Need to install mkcert (if not present) and create new secrets for ClusterIssuer setup.")
 
 	if !autoConfirm {
