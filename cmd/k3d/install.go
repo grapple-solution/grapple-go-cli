@@ -90,8 +90,8 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 
 		if len(clusters) == 0 {
-			utils.ErrorMessage("No k3d clusters found")
-			return fmt.Errorf("no k3d clusters found")
+			utils.ErrorMessage("No k3d clusters found, run 'grapple k3d create' to create a cluster")
+			return fmt.Errorf("no k3d clusters found, run 'grapple k3d create' to create a cluster")
 		}
 
 		var clusterNames []string
