@@ -5,6 +5,7 @@ import (
 	goErrors "errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -426,7 +427,9 @@ func setupClusterIssuer(ctx context.Context, restConfig *rest.Config) error {
 			utils.InfoMessage(fmt.Sprintf("Files found in %s", linuxDir))
 			caPath = linuxDir
 		} else {
-			return fmt.Errorf("error: CA files not found in both directories. Aborting process of creating cluster-issuer")
+			if err := askAndCreateMkcert(ctx, restConfig); err != nil {
+				return fmt.Errorf("failed to create mkcert CA secret: %w", err)
+			}
 		}
 
 		// Read certificate and key files
@@ -542,6 +545,36 @@ func setupClusterIssuer(ctx context.Context, restConfig *rest.Config) error {
 	}
 
 	utils.SuccessMessage(fmt.Sprintf("Successfully updated secret '%s' with ssl=true and sslissuer=mkcert-ca-issuer", grplSecretName))
+
+	return nil
+}
+
+func askAndCreateMkcert(ctx context.Context, restConfig *rest.Config) error {
+	utils.InfoMessage("Mkcert secrets not found. Need to install mkcert (if not present) and create new secrets for ClusterIssuer setup.")
+
+	if !autoConfirm {
+		confirmMsg := "Do you want to proceed with mkcert installation and setup? (y/N): "
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) != "y" {
+			return fmt.Errorf("failed to setup cluster issuer: user cancelled")
+		}
+	}
+
+	// Install mkcert if not already installed
+	if err := utils.InstallMkcert(); err != nil {
+		return fmt.Errorf("failed to install mkcert: %w", err)
+	}
+
+	// Generate root CA and key using mkcert
+	utils.InfoMessage("Generating mkcert root CA and key...")
+	cmd := exec.Command("mkcert", "-install")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to generate mkcert root CA: %w", err)
+	}
+	utils.SuccessMessage("Generated mkcert root CA and key successfully")
 
 	return nil
 }

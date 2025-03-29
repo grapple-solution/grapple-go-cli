@@ -18,33 +18,33 @@ const (
 	windowsOS = "windows"
 )
 
-var PackageInstaller = ""
+var PackageManager = ""
 
 func init() {
-	// Check if PackageInstaller is set as environment variable
-	if envPackageInstaller := os.Getenv("PACKAGE_INSTALLER"); envPackageInstaller != "" {
-		PackageInstaller = envPackageInstaller
+	// Check if PackageManager is set as environment variable
+	if envPackageManager := os.Getenv("PACKAGE_MANAGER"); envPackageManager != "" {
+		PackageManager = envPackageManager
 	} else {
 		// If not set in env, determine default based on OS
 		switch runtime.GOOS {
 		case darwinOS:
-			PackageInstaller = brewPackageManager
+			PackageManager = brewPackageManager
 		case linuxOS:
 			// Try to detect package manager
 			if _, err := exec.LookPath(aptPackageManager); err == nil {
-				PackageInstaller = aptPackageManager
+				PackageManager = aptPackageManager
 			} else if _, err := exec.LookPath(dnfPackageManager); err == nil {
-				PackageInstaller = dnfPackageManager
+				PackageManager = dnfPackageManager
 			}
 		case windowsOS:
-			PackageInstaller = chocoPackageManager
+			PackageManager = chocoPackageManager
 		}
 
 	}
 }
 
 func displayPackageInstallerMessage() {
-	InfoMessage(fmt.Sprintf("PACKAGE_INSTALLER not set, will be using detected '%s'. You can set PACKAGE_INSTALLER env var to: brew, apt, dnf, or choco for specific package manager", PackageInstaller))
+	InfoMessage(fmt.Sprintf("PACKAGE_MANAGER not set, will be using detected '%s'. You can set PACKAGE_MANAGER env var to: brew, apt, dnf, or choco for specific package manager. Note: The package manager you specify must be installed on your system.", PackageManager))
 }
 
 func InstallDevspace() error {
@@ -58,7 +58,7 @@ func InstallDevspace() error {
 	InfoMessage("Installing Devspace CLI...")
 	var cmd *exec.Cmd
 
-	switch PackageInstaller {
+	switch PackageManager {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "devspace")
 	case aptPackageManager, dnfPackageManager:
@@ -92,7 +92,7 @@ func InstallDevspace() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Move-Item -Force devspace.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
 	default:
-		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
 	StartSpinner("Installing Devspace CLI, It will take a few minutes...")
@@ -114,7 +114,7 @@ func InstallTaskCLI() error {
 	displayPackageInstallerMessage()
 	InfoMessage("Installing Task CLI...")
 	var cmd *exec.Cmd
-	switch PackageInstaller {
+	switch PackageManager {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "go-task/tap/go-task")
 	case aptPackageManager, dnfPackageManager:
@@ -140,7 +140,7 @@ func InstallTaskCLI() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Expand-Archive -Path task.zip -DestinationPath $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\ -Force")
 	default:
-		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
 	StartSpinner("Installing Task CLI, It will take a few minutes...")
@@ -161,7 +161,7 @@ func InstallYq() error {
 	displayPackageInstallerMessage()
 	InfoMessage("Installing Yq CLI...")
 	var cmd *exec.Cmd
-	switch PackageInstaller {
+	switch PackageManager {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "yq")
 	case aptPackageManager, dnfPackageManager:
@@ -196,7 +196,7 @@ func InstallYq() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Move-Item -Force yq.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
 	default:
-		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
 	StartSpinner("Installing Yq CLI, It will take a few minutes...")
@@ -217,7 +217,7 @@ func InstallK3d() error {
 	displayPackageInstallerMessage()
 	InfoMessage("Installing K3d CLI...")
 	var cmd *exec.Cmd
-	switch PackageInstaller {
+	switch PackageManager {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "k3d")
 	case aptPackageManager, dnfPackageManager:
@@ -227,7 +227,7 @@ func InstallK3d() error {
 		cmd = exec.Command("powershell", "-Command",
 			"Invoke-WebRequest -Uri https://raw.githubusercontent.com/k3d-io/k3d/main/install.ps1 -OutFile install-k3d.ps1; ./install-k3d.ps1")
 	default:
-		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
 	StartSpinner("Installing K3d CLI, It will take a few minutes...")
@@ -247,7 +247,7 @@ func InstallDnsmasq() error {
 
 	displayPackageInstallerMessage()
 	var cmd *exec.Cmd
-	switch PackageInstaller {
+	switch PackageManager {
 	case brewPackageManager:
 		cmd = exec.Command(brewPackageManager, "install", "dnsmasq")
 	case aptPackageManager:
@@ -259,7 +259,7 @@ func InstallDnsmasq() error {
 	case chocoPackageManager:
 		cmd = exec.Command(chocoPackageManager, "install", "-y", "dnsmasq")
 	default:
-		return fmt.Errorf("unsupported package installer: %s", PackageInstaller)
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
 	}
 
 	StartSpinner("Installing Dnsmasq, It will take a few minutes...")
@@ -269,5 +269,36 @@ func InstallDnsmasq() error {
 	}
 	StopSpinner()
 	SuccessMessage("Dnsmasq installed successfully")
+	return nil
+}
+
+func InstallMkcert() error {
+	if _, err := exec.LookPath("mkcert"); err == nil {
+		return nil // Already installed
+	}
+
+	displayPackageInstallerMessage()
+	InfoMessage("Installing Mkcert...")
+	var cmd *exec.Cmd
+	switch PackageManager {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "mkcert")
+	case aptPackageManager:
+		cmd = exec.Command("sudo", aptPackageManager, "install", "-y", "mkcert")
+	case dnfPackageManager:
+		cmd = exec.Command("sudo", dnfPackageManager, "install", "-y", "mkcert")
+	case chocoPackageManager:
+		cmd = exec.Command(chocoPackageManager, "install", "-y", "mkcert")
+	default:
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
+	}
+
+	StartSpinner("Installing Mkcert, It will take a few minutes...")
+	if err := cmd.Run(); err != nil {
+		ErrorMessage(fmt.Sprintf("Error installing mkcert: %v", err))
+		return fmt.Errorf("error installing mkcert: %w", err)
+	}
+	StopSpinner()
+	SuccessMessage("Mkcert installed successfully")
 	return nil
 }
