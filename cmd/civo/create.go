@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/civo/civogo"
-	"github.com/grapple-solution/grapple_cli/utils" // Replace with the actual path to your utils package
+	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -148,6 +148,7 @@ func createCivoCluster(client *civogo.Client) (*civogo.KubernetesCluster, error)
 		TargetNodesSize: size,
 		Applications:    applications,
 		Region:          civoRegion,
+		FirewallRule:    "80,443,6443",
 	}
 	cluster, err := client.NewKubernetesClusters(config)
 	if err != nil {

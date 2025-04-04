@@ -12,6 +12,11 @@ import (
 	"github.com/grapple-solution/grapple_cli/utils" // your logging/prompting
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/repo"
 
 	// Helm libraries
 
@@ -129,22 +134,15 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
-	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
-		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
-		code := utils.GenerateRandomString()
-		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
-			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
-			return err
-		}
-		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
-		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
-			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
-			return err
-		}
-	}
-
 	prepareValuesFile()
+
+	logOnFileStart()
+	err = setupTraefik(restConfig)
+	logOnCliAndFileStart()
+	if err != nil {
+		return fmt.Errorf("failed to setup Traefik: %w", err)
+	}
+	utils.SuccessMessage("Loadbalancer setup completed.")
 
 	valuesFiles := []string{"/tmp/values-override.yaml"}
 	// Step 3) Deploy "grsf-init"
@@ -239,6 +237,26 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
 		}
 		utils.SuccessMessage("Grapple is ready!")
+	}
+
+	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik", "traefik")
+	if err != nil {
+		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
+	}
+
+	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
+	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
+		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
+		code := utils.GenerateRandomString()
+		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
+			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
+			return err
+		}
+		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
+		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
+			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
+			return err
+		}
 	}
 
 	if installKubeblocks {
@@ -428,8 +446,8 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 			}
 		}
 
-		clusterIP = cluster.MasterIP
-		utils.InfoMessage(fmt.Sprintf("Selected civo master ip: %s", clusterIP))
+		// clusterIP = cluster.MasterIP
+		// utils.InfoMessage(fmt.Sprintf("Selected civo master ip: %s", clusterIP))
 		// Build restConfig from civo cluster's kubeconfig
 		kubeconfigBytes := []byte(cluster.KubeConfig)
 		restConfig, err = clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
@@ -552,4 +570,132 @@ func findClusterByName(client *civogo.Client, name string) (*civogo.KubernetesCl
 		}
 	}
 	return nil, fmt.Errorf("no cluster found with name '%s'", name)
+}
+
+// setupTraefik installs Traefik as a load balancer in the Kubernetes cluster
+func setupTraefik(restConfig *rest.Config) error {
+
+	utils.StartSpinner("Setting up Traefik load balancer...")
+	defer utils.StopSpinner()
+
+	// Initialize Helm client
+	helmCfg, err := utils.GetHelmConfig(restConfig, "traefik")
+	if err != nil {
+		utils.ErrorMessage("Failed to initialize Helm configuration: " + err.Error())
+		return err
+	}
+
+	// Check if Traefik is already installed
+	listClient := action.NewList(helmCfg)
+	listClient.AllNamespaces = true
+	releases, err := listClient.Run()
+	if err != nil {
+		utils.ErrorMessage("Failed to list releases: " + err.Error())
+		return err
+	}
+
+	traefikInstalled := false
+	for _, release := range releases {
+		if release.Name == "traefik" {
+			traefikInstalled = true
+			break
+		}
+	}
+
+	if !traefikInstalled {
+		utils.InfoMessage("Installing Traefik...")
+
+		// Create Helm environment settings
+		settings := cli.New()
+		settings.SetNamespace("traefik")
+
+		// Add the Traefik Helm repository
+		repoEntry := repo.Entry{
+			Name: "traefik",
+			URL:  "https://helm.traefik.io/traefik",
+		}
+
+		chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
+		if err != nil {
+			utils.ErrorMessage("Failed to create chart repository object: " + err.Error())
+			return err
+		}
+
+		// Add repo to repositories.yaml
+		repoFile := settings.RepositoryConfig
+		b, err := os.ReadFile(repoFile)
+		if err != nil && !os.IsNotExist(err) {
+			utils.ErrorMessage("Failed to read repository file: " + err.Error())
+			return err
+		}
+
+		var f repo.File
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			utils.ErrorMessage("Failed to unmarshal repository file: " + err.Error())
+			return err
+		}
+
+		// Add new repo or update existing
+		f.Add(&repoEntry)
+
+		if err := f.WriteFile(repoFile, 0644); err != nil {
+			utils.ErrorMessage("Failed to write repository file: " + err.Error())
+			return err
+		}
+
+		_, err = chartRepo.DownloadIndexFile()
+		if err != nil {
+			utils.ErrorMessage("Failed to download repository index: " + err.Error())
+			return err
+		}
+
+		// Create install client
+		installClient := action.NewInstall(helmCfg)
+		installClient.Namespace = "traefik"
+		installClient.CreateNamespace = true
+		installClient.ReleaseName = "traefik"
+		installClient.Version = ""
+
+		// Locate and load the chart
+		chartPath, err := installClient.ChartPathOptions.LocateChart("traefik/traefik", settings)
+		if err != nil {
+			utils.ErrorMessage("Failed to locate Traefik chart: " + err.Error())
+			return err
+		}
+
+		// Load chart
+		chart, err := loader.Load(chartPath)
+		if err != nil {
+			utils.ErrorMessage("Failed to load Traefik chart: " + err.Error())
+			return err
+		}
+
+		// Set values
+		values := map[string]interface{}{
+			"service": map[string]interface{}{
+				"type": "LoadBalancer",
+			},
+			"ports": map[string]interface{}{
+				"web": map[string]interface{}{
+					"port": 80,
+				},
+				"websecure": map[string]interface{}{
+					"port": 443,
+				},
+			},
+		}
+
+		// Install chart
+		_, err = installClient.Run(chart, values)
+		if err != nil {
+			utils.ErrorMessage("Failed to install Traefik: " + err.Error())
+			return err
+		}
+
+		utils.InfoMessage("Traefik installed successfully")
+	} else {
+		utils.InfoMessage("Traefik already installed")
+	}
+
+	return nil
 }
