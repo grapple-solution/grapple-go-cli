@@ -19,6 +19,7 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/registry"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -588,7 +589,7 @@ func GenerateRandomString() string {
 	return hex.EncodeToString(bytes)
 }
 
-// PreloadGrappleImages downloads and caches Grapple images in the cluster
+// PreloadGrappleImages downloads and caches Grapple images across all nodes in the cluster
 func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 	// Create the clientset
 	clientset, err := kubernetes.NewForConfig(restConfig)
@@ -602,75 +603,89 @@ func PreloadGrappleImages(restConfig *rest.Config, version string) error {
 		fmt.Sprintf("grpl/gruim:%s", version),
 	}
 
-	// Create pods to pull images
+	// Create DaemonSets to pull images on all nodes
 	for _, image := range images {
-		// Create a unique name for the pod by replacing invalid characters
-		podName := fmt.Sprintf("image-preload-%s-%s",
+		// Create a unique name for the DaemonSet by replacing invalid characters
+		dsName := fmt.Sprintf("image-preload-%s-%s",
 			strings.ReplaceAll(strings.Split(image, ":")[0], "/", "-"),
 			strings.ReplaceAll(strings.Split(image, ":")[1], ".", "-"))
 
-		// Check if pod already exists
-		_, err := clientset.CoreV1().Pods("default").Get(context.Background(), podName, v1.GetOptions{})
+		// Check if DaemonSet already exists
+		_, err := clientset.AppsV1().DaemonSets("default").Get(context.Background(), dsName, v1.GetOptions{})
 		if err == nil {
-			// Pod exists, skip to next image
-			// InfoMessage(fmt.Sprintf("Pod %s already exists, skipping image preload for %s", podName, image))
+			// DaemonSet exists, skip to next image
 			continue
 		} else if !errors.IsNotFound(err) {
 			// Error other than "not found"
-			return fmt.Errorf("failed to check for existing pod %s: %w", podName, err)
+			return fmt.Errorf("failed to check for existing DaemonSet %s: %w", dsName, err)
 		}
 
-		pod := &corev1.Pod{
+		InfoMessage(fmt.Sprintf("Creating DaemonSet for %s", image))
+
+		// Create the DaemonSet
+		ds := &appsv1.DaemonSet{
 			ObjectMeta: v1.ObjectMeta{
-				Name: podName,
+				Name: dsName,
 			},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{
-					{
-						Name:  "preload",
-						Image: image,
-						Command: []string{
-							"sleep",
-							"1", // Sleep briefly just to pull the image
-						},
+			Spec: appsv1.DaemonSetSpec{
+				Selector: &v1.LabelSelector{
+					MatchLabels: map[string]string{
+						"app": dsName,
 					},
 				},
-				RestartPolicy: corev1.RestartPolicyNever,
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: v1.ObjectMeta{
+						Labels: map[string]string{
+							"app": dsName,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "preload",
+								Image: image,
+								Command: []string{
+									"sh",
+									"-c",
+									"echo 'Image pulled successfully' && while true; do sleep 3600; done",
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyAlways,
+					},
+				},
 			},
 		}
 
-		// Create the pod
-		_, err = clientset.CoreV1().Pods("default").Create(context.Background(), pod, v1.CreateOptions{})
+		// Create the DaemonSet
+		_, err = clientset.AppsV1().DaemonSets("default").Create(context.Background(), ds, v1.CreateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to create image preload pod for %s: %w", image, err)
+			return fmt.Errorf("failed to create image preload DaemonSet for %s: %w", image, err)
 		}
 
-		// Wait for pod to complete
-		err = wait.PollImmediate(time.Second, time.Minute*5, func() (bool, error) {
-			pod, err := clientset.CoreV1().Pods("default").Get(context.Background(), podName, v1.GetOptions{})
+		// Wait for DaemonSet to complete (all pods running or succeeded)
+		err = wait.PollImmediate(5*time.Second, time.Minute*10, func() (bool, error) {
+			ds, err := clientset.AppsV1().DaemonSets("default").Get(context.Background(), dsName, v1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 
-			switch pod.Status.Phase {
-			case corev1.PodSucceeded:
-				return true, nil
-			case corev1.PodFailed:
-				return false, fmt.Errorf("pod failed")
-			default:
-				return false, nil
-			}
+			// Check if all desired pods are ready
+			return ds.Status.DesiredNumberScheduled == ds.Status.NumberReady, nil
 		})
 
 		if err != nil {
-			return fmt.Errorf("error waiting for image preload pod %s: %w", podName, err)
+			return fmt.Errorf("error waiting for image preload DaemonSet %s: %w", dsName, err)
 		}
 
-		// // Clean up the pod
-		// err = clientset.CoreV1().Pods("default").Delete(context.Background(), podName, v1.DeleteOptions{})
-		// if err != nil {
-		// 	return fmt.Errorf("failed to delete image preload pod %s: %w", podName, err)
-		// }
+		// Give pods a moment to finish their work
+		time.Sleep(10 * time.Second)
+
+		// Clean up the DaemonSet
+		err = clientset.AppsV1().DaemonSets("default").Delete(context.Background(), dsName, v1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete image preload DaemonSet %s: %w", dsName, err)
+		}
 	}
 
 	return nil

@@ -125,10 +125,12 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Start preloading images in parallel
 	var preloadImagesWg sync.WaitGroup
 	preloadImagesWg.Add(1)
+	var preloadImagesError error
 	go func() {
 		defer preloadImagesWg.Done()
 		if err := utils.PreloadGrappleImages(restConfig, grappleVersion); err != nil {
 			utils.ErrorMessage("image preload error: " + err.Error())
+			preloadImagesError = err
 		} else {
 			utils.InfoMessage("grapple images preloaded.")
 		}
@@ -273,6 +275,11 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")
 	preloadImagesWg.Wait()
+	if preloadImagesError != nil {
+		utils.ErrorMessage("image preload error: " + preloadImagesError.Error())
+	} else {
+		utils.SuccessMessage("Grapple images preloaded.")
+	}
 
 	utils.RemoveCodeVerificationServer(restConfig)
 
