@@ -74,6 +74,15 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
+	utils.InfoMessage("Waiting for Grapple to be ready...")
+	logOnFileStart()
+	err = utils.WaitForGrappleReady(restConfig)
+	logOnCliAndFileStart()
+	if err != nil {
+		return fmt.Errorf("failed to wait for grapple to be ready: %w", err)
+	}
+	utils.SuccessMessage("Grapple is ready!")
+
 	// Clone examples repo
 	repoPath := "/tmp/grpl-gras-examples"
 	if err := cloneExamplesRepo(repoPath); err != nil {
@@ -277,7 +286,7 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 			// Resource doesn't exist, create it
 			_, err = dr.Create(context.TODO(), &obj, metav1.CreateOptions{})
 			if err != nil {
-				return fmt.Errorf("failed to create resource: %w", err)
+				return fmt.Errorf("failed to deploy GrappleApplicationSet resource: %w", err)
 			}
 			utils.SuccessMessage(fmt.Sprintf("Created %s '%s' in namespace '%s'", obj.GetKind(), obj.GetName(), namespace))
 		} else {
@@ -330,7 +339,6 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 
 	return nil
 }
-
 func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
 	// Watch deployment status
 	watcher, err := client.AppsV1().Deployments(namespace).Watch(context.TODO(), metav1.ListOptions{
@@ -349,10 +357,51 @@ func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymen
 		}
 
 		// Check if deployment is ready
+		// Ensure all replicas are ready, updated, and available
 		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
-			deployment.Status.UpdatedReplicas == deployment.Status.Replicas {
-			utils.SuccessMessage("Deployment is ready")
-			break
+			deployment.Status.UpdatedReplicas == deployment.Status.Replicas &&
+			deployment.Status.AvailableReplicas == deployment.Status.Replicas {
+
+			// Check if all pods are ready by verifying conditions
+			allPodsReady := true
+
+			// Get all pods for this deployment
+			selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+			if err != nil {
+				return fmt.Errorf("failed to parse selector: %w", err)
+			}
+
+			pods, err := client.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+				LabelSelector: selector.String(),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list pods: %w", err)
+			}
+
+			// Check each pod to ensure all containers are ready
+			for _, pod := range pods.Items {
+				if pod.Status.Phase != corev1.PodRunning {
+					allPodsReady = false
+					break
+				}
+
+				// Check if all containers in the pod are ready
+				for _, containerStatus := range pod.Status.ContainerStatuses {
+					if !containerStatus.Ready {
+						allPodsReady = false
+						break
+					}
+				}
+
+				if !allPodsReady {
+					break
+				}
+			}
+
+			if allPodsReady {
+				utils.SuccessMessage("Deployment is ready")
+				break
+			}
 		}
 	}
 	return nil

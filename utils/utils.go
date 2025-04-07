@@ -337,11 +337,11 @@ func SetupCodeVerificationServer(restConfig *rest.Config, code, completeDomain, 
 	}
 
 	// Get deployment yaml path
-	deploymentPath, err := GetResourcePath("files")
-	if err != nil {
-		return fmt.Errorf("failed to get deployment path: %w", err)
-	}
-	// deploymentPath := "files"
+	// deploymentPath, err := GetResourcePath("files")
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get deployment path: %w", err)
+	// }
+	deploymentPath := "files"
 	src := filepath.Join(deploymentPath, "code-verification-server-deployment.yaml")
 	// Read deployment yaml
 	yamlFile, err := os.ReadFile(src)
