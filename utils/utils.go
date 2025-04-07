@@ -289,9 +289,49 @@ func WaitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymen
 
 		// Check if deployment is ready
 		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
-			deployment.Status.UpdatedReplicas == deployment.Status.Replicas {
-			SuccessMessage("Deployment is ready")
-			break
+			deployment.Status.UpdatedReplicas == deployment.Status.Replicas &&
+			deployment.Status.AvailableReplicas == deployment.Status.Replicas {
+
+			// Check if all pods are ready by verifying conditions
+			allPodsReady := true
+
+			// Get all pods for this deployment
+			selector, err := v1.LabelSelectorAsSelector(deployment.Spec.Selector)
+			if err != nil {
+				return fmt.Errorf("failed to parse selector: %w", err)
+			}
+
+			pods, err := client.CoreV1().Pods(namespace).List(context.TODO(), v1.ListOptions{
+				LabelSelector: selector.String(),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to list pods: %w", err)
+			}
+
+			// Check each pod to ensure all containers are ready
+			for _, pod := range pods.Items {
+				if pod.Status.Phase != corev1.PodRunning {
+					allPodsReady = false
+					break
+				}
+
+				// Check if all containers in the pod are ready
+				for _, containerStatus := range pod.Status.ContainerStatuses {
+					if !containerStatus.Ready {
+						allPodsReady = false
+						break
+					}
+				}
+
+				if !allPodsReady {
+					break
+				}
+			}
+
+			if allPodsReady {
+				SuccessMessage("Deployment is ready")
+				break
+			}
 		}
 	}
 	return nil

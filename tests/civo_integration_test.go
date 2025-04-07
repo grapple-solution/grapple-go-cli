@@ -75,7 +75,7 @@ func TestCivoIntegration(t *testing.T) {
 			"--civo-email-address=info@grapple-solutions.com",
 			"--auto-confirm",
 			"--wait",
-			"--install-kubeblocks=false")
+			"--install-kubeblocks")
 		if err != nil {
 			setFailed(t)
 		}
@@ -103,18 +103,18 @@ func TestCivoIntegration(t *testing.T) {
 		log.Println("Starting test: Deploy example application")
 		checkPreviousTestFailed(t)
 
-		dbMysqlDiscoveryBased := utils.DB_MYSQL_DISCOVERY_BASED
-		externalDB := utils.DB_EXTERNAL
+		dbMysqlModelBased := utils.DB_MYSQL_MODEL_BASED
+		dbInternal := utils.DB_INTERNAL
 
-		if dbMysqlDiscoveryBased == "" || externalDB == "" {
+		if dbMysqlModelBased == "" || dbInternal == "" {
 			setFailed(t)
-			t.Skip("DB_MYSQL_DISCOVERY_BASED or EXTERNAL_DB is not set")
+			t.Skip("DB_MYSQL_MODEL_BASED or DB_INTERNAL value is not set")
 		}
 
 		fmt.Println("Deploying example application")
 		_ = runCmd(t, "grapple", "e", "d",
-			"--gras-template="+dbMysqlDiscoveryBased,
-			"--db-type="+externalDB)
+			"--gras-template="+dbMysqlModelBased,
+			"--db-type="+dbInternal)
 
 		fmt.Println("Waiting for example application to be ready")
 		time.Sleep(10 * time.Second)
@@ -137,8 +137,8 @@ func TestCivoIntegration(t *testing.T) {
 		}
 
 		utils.InfoMessage("Waiting for grapi deployment to be ready...")
-		deploymentName := fmt.Sprintf("%s-%s-grapi", "grpl-disc-ext", "gras-mysql")
-		err = utils.WaitForExampleDeployment(clientset, "grpl-disc-ext", deploymentName)
+		deploymentName := fmt.Sprintf("%s-%s-grapi", "grpl-mdl-int", "gras-mysql")
+		err = utils.WaitForExampleDeployment(clientset, "grpl-mdl-int", deploymentName)
 		if err != nil {
 			setFailed(t)
 			t.Fatal(err)
@@ -146,8 +146,8 @@ func TestCivoIntegration(t *testing.T) {
 		utils.SuccessMessage("grapi deployment is ready")
 
 		utils.InfoMessage("Waiting for gruim deployment to be ready...")
-		deploymentName = fmt.Sprintf("%s-%s-gruim", "grpl-disc-ext", "gras-mysql")
-		err = utils.WaitForExampleDeployment(clientset, "grpl-disc-ext", deploymentName)
+		deploymentName = fmt.Sprintf("%s-%s-gruim", "grpl-mdl-int", "gras-mysql")
+		err = utils.WaitForExampleDeployment(clientset, "grpl-mdl-int", deploymentName)
 		if err != nil {
 			setFailed(t)
 			t.Fatal(err)
@@ -183,7 +183,7 @@ func TestCivoIntegration(t *testing.T) {
 		var muim *unstructured.Unstructured
 		maxRetries := 5
 		for i := 0; i < maxRetries; i++ {
-			muim, err = dynamicClient.Resource(muimGVR).Namespace("grpl-disc-ext").Get(context.TODO(), "grpl-disc-ext-gras-mysql-gruim", v1.GetOptions{})
+			muim, err = dynamicClient.Resource(muimGVR).Namespace("grpl-mdl-int").Get(context.TODO(), "grpl-mdl-int-gras-mysql-gruim", v1.GetOptions{})
 			if err == nil {
 				break
 			}
