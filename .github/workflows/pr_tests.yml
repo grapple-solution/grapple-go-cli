@@ -38,7 +38,7 @@ jobs:
       # Run integration tests
       - name: Run Integration Tests
         env:
-          CIVO_API_TOKEN: ${{ secrets.CIVO_API_TOKEN }}
+          CIVO_API_TOKEN: ${{ secrets.CIVO_API_KEY }}
         run: |
           cd tests
           go test -timeout 20m -run TestCivoIntegration
