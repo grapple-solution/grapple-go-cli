@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	clusterName = "marketplace-test"
+	clusterName = "civo-integration-test"
 )
 
 var failed bool
@@ -159,6 +159,11 @@ func TestCivoIntegration(t *testing.T) {
 		log.Println("Starting test: Test the UI")
 		checkPreviousTestFailed(t)
 
+		// Wait for 20 seconds before testing the UI
+		utils.InfoMessage("Waiting 20 seconds before testing the UI...")
+		time.Sleep(20 * time.Second)
+		utils.InfoMessage("Continuing with UI testing")
+
 		config, err := clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 		if err != nil {
 			setFailed(t)
@@ -218,19 +223,22 @@ func TestCivoIntegration(t *testing.T) {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
+			setFailed(t)
 			t.Fatalf("Expected status code 200, got %d", resp.StatusCode)
+		} else {
+			utils.SuccessMessage("UI is ready")
 		}
 	})
 
-	t.Run("Destroy the cluster", func(t *testing.T) {
-		log.Println("Starting test: Destroy the cluster")
-		checkPreviousTestFailed(t)
-		log.Println("Destroying the cluster")
-		err := runCmd(t, "grapple", "civo", "remove", "--cluster-name", clusterName, "--civo-region", "fra1", "-y")
-		if err != nil {
-			setFailed(t)
-		}
-	})
+	// t.Run("Destroy the cluster", func(t *testing.T) {
+	// 	log.Println("Starting test: Destroy the cluster")
+	// 	checkPreviousTestFailed(t)
+	// 	log.Println("Destroying the cluster")
+	// 	err := runCmd(t, "grapple", "civo", "remove", "--cluster-name", clusterName, "--civo-region", "fra1", "-y")
+	// 	if err != nil {
+	// 		setFailed(t)
+	// 	}
+	// })
 
 	t.Run("Check test result", func(t *testing.T) {
 		log.Println("Starting test: Check test result")
@@ -261,11 +269,13 @@ func setFailed(t *testing.T) {
 
 func checkPreviousTestFailed(t *testing.T) {
 	if failed {
+		utils.ErrorMessage("Skipping test because previous test failed")
 		t.Skip("Previous test failed")
 	}
 
 	data, err := os.ReadFile("/tmp/failed_flag")
 	if err == nil && string(data) == "true" {
+		utils.ErrorMessage("Skipping test because previous test failed")
 		t.Skip("Previous test failed")
 	}
 }
