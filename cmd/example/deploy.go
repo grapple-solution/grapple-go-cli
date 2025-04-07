@@ -13,7 +13,6 @@ import (
 	"github.com/go-git/go-git/v5" // Go-git package
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -337,73 +336,6 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 	// Display deployment details
 	displayDeploymentDetails(DeploymentNamespace, GrasName, clusterDomain, sslEnabled)
 
-	return nil
-}
-func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
-	// Watch deployment status
-	watcher, err := client.AppsV1().Deployments(namespace).Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", deploymentName),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to watch deployment: %w", err)
-	}
-	defer watcher.Stop()
-
-	// Wait for deployment to be ready
-	for event := range watcher.ResultChan() {
-		deployment, ok := event.Object.(*appsv1.Deployment)
-		if !ok {
-			continue
-		}
-
-		// Check if deployment is ready
-		// Ensure all replicas are ready, updated, and available
-		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
-			deployment.Status.UpdatedReplicas == deployment.Status.Replicas &&
-			deployment.Status.AvailableReplicas == deployment.Status.Replicas {
-
-			// Check if all pods are ready by verifying conditions
-			allPodsReady := true
-
-			// Get all pods for this deployment
-			selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
-			if err != nil {
-				return fmt.Errorf("failed to parse selector: %w", err)
-			}
-
-			pods, err := client.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
-				LabelSelector: selector.String(),
-			})
-			if err != nil {
-				return fmt.Errorf("failed to list pods: %w", err)
-			}
-
-			// Check each pod to ensure all containers are ready
-			for _, pod := range pods.Items {
-				if pod.Status.Phase != corev1.PodRunning {
-					allPodsReady = false
-					break
-				}
-
-				// Check if all containers in the pod are ready
-				for _, containerStatus := range pod.Status.ContainerStatuses {
-					if !containerStatus.Ready {
-						allPodsReady = false
-						break
-					}
-				}
-
-				if !allPodsReady {
-					break
-				}
-			}
-
-			if allPodsReady {
-				utils.SuccessMessage("Deployment is ready")
-				break
-			}
-		}
-	}
 	return nil
 }
 
