@@ -230,15 +230,15 @@ func TestCivoIntegration(t *testing.T) {
 		}
 	})
 
-	// t.Run("Destroy the cluster", func(t *testing.T) {
-	// 	log.Println("Starting test: Destroy the cluster")
-	// 	checkPreviousTestFailed(t)
-	// 	log.Println("Destroying the cluster")
-	// 	err := runCmd(t, "grapple", "civo", "remove", "--cluster-name", clusterName, "--civo-region", "fra1", "-y")
-	// 	if err != nil {
-	// 		setFailed(t)
-	// 	}
-	// })
+	t.Run("Destroy the cluster", func(t *testing.T) {
+		log.Println("Starting test: Destroy the cluster")
+		checkPreviousTestFailed(t)
+		log.Println("Destroying the cluster")
+		err := runCmd(t, "grapple", "civo", "remove", "--cluster-name", clusterName, "--civo-region", "fra1", "-y")
+		if err != nil {
+			setFailed(t)
+		}
+	})
 
 	t.Run("Check test result", func(t *testing.T) {
 		log.Println("Starting test: Check test result")
