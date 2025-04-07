@@ -30,7 +30,6 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	apiv1 "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -748,7 +747,7 @@ func GetClusterExternalIP(restConfig *rest.Config, namespace, serviceName string
 	InfoMessage(fmt.Sprintf("Waiting for the external IP of LoadBalancer '%s' in namespace '%s'", serviceName, namespace))
 
 	// Create client from restConfig
-	clientset, err := apiv1.NewForConfig(restConfig)
+	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to create kubernetes client: %w", err)
 	}

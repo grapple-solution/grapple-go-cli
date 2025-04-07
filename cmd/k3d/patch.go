@@ -249,16 +249,23 @@ func configureDNSForLinux() error {
 
 	return nil
 }
-
 func configureDNSForMacOS() error {
 	// Create dnsmasq.conf file
-	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\n"
+	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\nport=5353\n"
 	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
 		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
 	}
 
+	// Get homebrew prefix dynamically
+	homebrewPrefix, err := exec.Command("brew", "--prefix").Output()
+	if err != nil {
+		return fmt.Errorf("failed to get homebrew prefix: %w", err)
+	}
+	brewPrefix := strings.TrimSpace(string(homebrewPrefix))
+	dnsmasqPath := fmt.Sprintf("%s/etc/dnsmasq.conf", brewPrefix)
+
 	// Display commands to be executed
-	commandsToRun := "sudo cp /tmp/dnsmasq.conf /usr/local/etc/dnsmasq.conf && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\" | sudo tee /etc/resolver/grpl-k3d.dev"
+	commandsToRun := fmt.Sprintf("sudo cp /tmp/dnsmasq.conf %s && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\nport 5353\" | sudo tee /etc/resolver/grpl-k3d.dev", dnsmasqPath)
 	utils.InfoMessage("Going to run following commands:")
 	fmt.Println(commandsToRun)
 
@@ -273,24 +280,46 @@ func configureDNSForMacOS() error {
 		}
 	}
 
-	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/opt/homebrew/etc/dnsmasq.conf").Run(); err != nil {
-		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
+	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", dnsmasqPath).Run(); err != nil {
+		return fmt.Errorf("failed to copy dnsmasq.conf to %s: %w", dnsmasqPath, err)
 	}
-	if err := exec.Command("brew", "services", "restart", "dnsmasq").Run(); err != nil {
-		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error presist then please restart your system and try again")
-		return fmt.Errorf("failed to restart dnsmasq: %w", err)
-	}
+
 	if err := exec.Command("sudo", "mkdir", "-p", "/etc/resolver").Run(); err != nil {
 		return fmt.Errorf("failed to create resolver directory: %w", err)
 	}
 
-	// Create resolver file
-	resolverContent := "nameserver 127.0.0.1"
+	// Create resolver file with port 5353
+	resolverContent := "nameserver 127.0.0.1\nport 5353"
 	if err := os.WriteFile("/tmp/resolver-grpl-k3d.dev", []byte(resolverContent), 0644); err != nil {
 		return fmt.Errorf("failed to create temporary resolver file: %w", err)
 	}
 	if err := exec.Command("sudo", "cp", "/tmp/resolver-grpl-k3d.dev", "/etc/resolver/grpl-k3d.dev").Run(); err != nil {
 		return fmt.Errorf("failed to copy resolver file: %w", err)
+	}
+
+	// Restart dnsmasq service
+	if err := exec.Command("brew", "services", "restart", "dnsmasq").Run(); err != nil {
+		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error persists then please restart your system and try again")
+		return fmt.Errorf("failed to restart dnsmasq: %w", err)
+	}
+
+	// Add 127.0.0.1 to DNS servers for all network services
+	networkServices, err := exec.Command("networksetup", "-listallnetworkservices").Output()
+	if err != nil {
+		return fmt.Errorf("failed to list network services: %w", err)
+	}
+
+	services := strings.Split(string(networkServices), "\n")
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service == "" || strings.Contains(service, "asterisk") {
+			continue
+		}
+
+		utils.InfoMessage(fmt.Sprintf("Setting DNS server for %s", service))
+		if err := exec.Command("networksetup", "-setdnsservers", service, "127.0.0.1").Run(); err != nil {
+			utils.InfoMessage(fmt.Sprintf("Failed to set DNS server for %s: %v", service, err))
+		}
 	}
 
 	return nil
