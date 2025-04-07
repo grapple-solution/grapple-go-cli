@@ -5,13 +5,13 @@ metadata:
   namespace: kube-system
 data:
   custom.server: |
-    kubefirst.dev:53 {
+    grpl-k3d.dev:53 {
         template IN A {
-            match ^(?P<sub>.+)\.kubefirst\.dev\.$
+            match ^(?P<sub>.+)\.grpl-k3d\.dev\.$
             answer "{{.Name}} 60 IN A $DOCKER_API_GATEWAY"
         }
         template IN AAAA {
-            match ^(?P<sub>.+)\.kubefirst\.dev\.$
+            match ^(?P<sub>.+)\.grpl-k3d\.dev\.$
             answer "{{.Name}} 60 IN AAAA ::1"
         }
         log

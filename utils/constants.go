@@ -41,3 +41,27 @@ const (
 const (
 	DefaultValue = ""
 )
+
+const (
+	SecKeyEmail               = "email"
+	SecKeyOrganization        = "organization"
+	SecKeyClusterdomain       = "clusterdomain"
+	SecKeyGrapiversion        = "grapiversion"
+	SecKeyGruimversion        = "gruimversion"
+	SecKeyDev                 = "dev"
+	SecKeySsl                 = "ssl"
+	SecKeySslissuer           = "sslissuer"
+	SecKeyClusterName         = "CLUSTER_NAME"
+	SecKeyGrapleDNS           = "GRAPPLE_DNS"
+	SecKeyGrapleVersion       = "GRAPPLE_VERSION"
+	SecKeyGrapleLicense       = "GRAPPLE_LICENSE"
+	SecKeyProviderClusterType = "PROVIDER_CLUSTER_TYPE"
+	SecKeyCivoClusterID       = "CIVO_CLUSTER_ID"
+	SecKeyCivoRegion          = "CIVO_REGION"
+	SecKeyCivoMasterIP        = "CIVO_MASTER_IP"
+)
+
+const (
+	ProviderClusterTypeCivo = "CIVO"
+	ProviderClusterTypeK3d  = "K3D"
+)

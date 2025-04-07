@@ -12,7 +12,8 @@ import (
 
 	"github.com/go-git/go-git/v5" // Go-git package
 	"github.com/grapple-solution/grapple_cli/utils"
-	"github.com/spf13/cobra" // Import for appsv1
+	"github.com/spf13/cobra"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -148,7 +149,7 @@ func deployDBFile(client *kubernetes.Clientset, restConfig *rest.Config, repoPat
 func deployDBCacheRedis(client *kubernetes.Clientset, restConfig *rest.Config, repoPath string, logOnCliAndFileStart, logOnFileStart func()) error {
 	manifestPath := filepath.Join(repoPath, "db-cache-redis/resource.yaml")
 	// check and install kubeblocks first
-	utils.InfoMessage("Checking and installing kubeblocks...")
+	utils.InfoMessage("Checking and installing kubeblocks, it may take a while...")
 	logOnFileStart()
 	if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 		logOnCliAndFileStart()
@@ -163,7 +164,7 @@ func deployDBMySQL(client *kubernetes.Clientset, restConfig *rest.Config, repoPa
 	var manifestPath string
 	if dbType == utils.DB_INTERNAL {
 		manifestPath = filepath.Join(repoPath, fmt.Sprintf("db-mysql-%s-based/internal_resource.yaml", dbStyle))
-		utils.InfoMessage("Checking and installing kubeblocks...")
+		utils.InfoMessage("Checking and installing kubeblocks, it may take a while...")
 		logOnFileStart()
 		if err := utils.InstallKubeBlocksOnCluster(restConfig); err != nil {
 			logOnCliAndFileStart()
@@ -313,5 +314,67 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 		utils.SuccessMessage("gruim deployment is ready")
 	}
 
+	// Get cluster domain from environment or use default
+	clusterDomain, err := utils.ExtractDomainFromGrplConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to extract cluster domain: %w", err)
+	}
+
+	sslEnabled, err := utils.IsSSLEnabled(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to check SSL status: %w", err)
+	}
+
+	// Display deployment details
+	displayDeploymentDetails(DeploymentNamespace, GrasName, clusterDomain, sslEnabled)
+
 	return nil
+}
+
+func waitForExampleDeployment(client *kubernetes.Clientset, namespace, deploymentName string) error {
+	// Watch deployment status
+	watcher, err := client.AppsV1().Deployments(namespace).Watch(context.TODO(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", deploymentName),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to watch deployment: %w", err)
+	}
+	defer watcher.Stop()
+
+	// Wait for deployment to be ready
+	for event := range watcher.ResultChan() {
+		deployment, ok := event.Object.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+
+		// Check if deployment is ready
+		if deployment.Status.ReadyReplicas == deployment.Status.Replicas &&
+			deployment.Status.UpdatedReplicas == deployment.Status.Replicas {
+			utils.SuccessMessage("Deployment is ready")
+			break
+		}
+	}
+	return nil
+}
+
+func displayDeploymentDetails(namespace, resourceName, clusterDomain string, sslEnabled bool) {
+
+	if !wait {
+		utils.InfoMessage("It will take a few minutes for the deployment to be ready")
+	}
+
+	httpPrefix := "http"
+	if sslEnabled {
+		httpPrefix = "https"
+	}
+
+	if clusterDomain != "" {
+		utils.InfoMessage("Deployment Details")
+		utils.InfoMessage(fmt.Sprintf("Following resources are deployed in %s namespace", namespace))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: grapi can be accessed at %s://%s-%s-grapi.%s",
+			httpPrefix, namespace, resourceName, clusterDomain))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: gruim can be accessed at %s://%s-%s-gruim.%s",
+			httpPrefix, namespace, resourceName, clusterDomain))
+	}
 }

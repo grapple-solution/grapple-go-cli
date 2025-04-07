@@ -1,11 +1,8 @@
 package civo
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -15,24 +12,17 @@ import (
 	"github.com/grapple-solution/grapple_cli/utils" // your logging/prompting
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
-
-	// Helm libraries
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
-	"helm.sh/helm/v3/pkg/registry"
+	"helm.sh/helm/v3/pkg/repo"
+
+	// Helm libraries
 
 	// Kubernetes libraries
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/dynamic"
 	apiv1 "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -144,28 +134,21 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
-	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
-		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
-		code := utils.GenerateRandomString()
-		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
-			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
-			return err
-		}
-		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
-		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
-			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
-			return err
-		}
-	}
-
 	prepareValuesFile()
 
-	valuesFile := "/tmp/values-override.yaml"
+	logOnFileStart()
+	err = setupTraefik(restConfig)
+	logOnCliAndFileStart()
+	if err != nil {
+		return fmt.Errorf("failed to setup Traefik: %w", err)
+	}
+	utils.SuccessMessage("Loadbalancer setup completed.")
+
+	valuesFiles := []string{"/tmp/values-override.yaml"}
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-init", "grpl-system", grappleVersion, valuesFiles)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-init: %w", err)
@@ -173,22 +156,17 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf-init to be ready...")
 	logOnFileStart()
-	err = waitForGrsfInit(kubeClient)
+	err = utils.WaitForGrsfInit(kubeClient)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-init not ready: %w", err)
 	}
 	utils.SuccessMessage("grsf-init is installed and ready.")
 
-	// // Remove the DNS job if it was created:
-	// if !isResolvable(extractDomain(grappleDNS)) {
-	// 	deleteDnsRoute53UpsertJob(kubeClient, grappleDNS)
-	// }
-
 	// // Step 4) Deploy "grsf"
 	utils.InfoMessage("Deploying 'grsf' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf", "grpl-system", grappleVersion, valuesFiles)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf: %w", err)
@@ -196,7 +174,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf to be ready (checking crossplane providers, etc.)...")
 	logOnFileStart()
-	err = waitForGrsf(kubeClient, "grpl-system")
+	err = utils.WaitForGrsf(kubeClient, "grpl-system")
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf not ready: %w", err)
@@ -206,7 +184,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// // Step 5) Deploy "grsf-config"
 	utils.InfoMessage("Deploying 'grsf-config' chart...")
 	logOnFileStart()
-	err = helmDeployReleaseWithRetry(kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFile)
+	err = utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-config", "grpl-system", grappleVersion, valuesFiles)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to deploy grsf-config: %w", err)
@@ -214,7 +192,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	utils.InfoMessage("Waiting for grsf-config to be applied (CRDs, XRDs, etc.)...")
 	logOnFileStart()
-	err = waitForGrsfConfig(kubeClient, restConfig)
+	err = utils.WaitForGrsfConfig(kubeClient, restConfig)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-config not ready: %w", err)
@@ -224,13 +202,13 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// Step 6) Deploy "grsf-integration"
 	utils.InfoMessage("Deploying 'grsf-integration' chart...")
 	logOnFileStart()
-	if err := helmDeployReleaseWithRetry(kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFile); err != nil {
+	if err := utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-integration", "grpl-system", grappleVersion, valuesFiles); err != nil {
 		return fmt.Errorf("failed to deploy grsf-integration: %w", err)
 	}
 
 	utils.InfoMessage("Waiting for grsf-integration to be ready...")
 	logOnFileStart()
-	err = waitForGrsfIntegration(restConfig)
+	err = utils.WaitForGrsfIntegration(restConfig)
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("grsf-integration not ready: %w", err)
@@ -241,7 +219,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if sslEnable {
 		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.) - placeholder logic.")
 		logOnFileStart()
-		err = createClusterIssuer(kubeClient)
+		err = utils.CreateClusterIssuer(kubeClient, sslEnable)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to create clusterissuer: %w", err)
@@ -261,6 +239,26 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		utils.SuccessMessage("Grapple is ready!")
 	}
 
+	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik", "traefik")
+	if err != nil {
+		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
+	}
+
+	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
+	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
+		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
+		code := utils.GenerateRandomString()
+		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
+			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
+			return err
+		}
+		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
+		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
+			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
+			return err
+		}
+	}
+
 	if installKubeblocks {
 		utils.InfoMessage("Waiting for kubeblocks to be ready, it might take a while...")
 		logOnFileStart()
@@ -276,7 +274,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage("Waiting for grapple images to be preloaded...")
 	preloadImagesWg.Wait()
 
-	// utils.RemoveCodeVerificationServer(restConfig)
+	utils.RemoveCodeVerificationServer(restConfig)
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
@@ -288,24 +286,24 @@ func prepareValuesFile() error {
 		"clusterdomain": completeDomain,
 		"config": map[string]interface{}{
 			// Common fields
-			secKeyEmail:               civoEmailAddress,
-			secKeyOrganization:        organization,
-			secKeyClusterdomain:       completeDomain,
-			secKeyGrapiversion:        "0.0.1",
-			secKeyGruimversion:        "0.0.1",
-			secKeyDev:                 "false",
-			secKeySsl:                 fmt.Sprintf("%v", sslEnable),
-			secKeySslissuer:           sslIssuer,
-			secKeyClusterName:         clusterName,
-			secKeyGrapleDNS:           completeDomain,
-			secKeyGrapleVersion:       grappleVersion,
-			secKeyGrapleLicense:       grappleLicense,
-			secKeyProviderClusterType: providerClusterTypeCivo,
+			utils.SecKeyEmail:               civoEmailAddress,
+			utils.SecKeyOrganization:        organization,
+			utils.SecKeyClusterdomain:       completeDomain,
+			utils.SecKeyGrapiversion:        "0.0.1",
+			utils.SecKeyGruimversion:        "0.0.1",
+			utils.SecKeyDev:                 "false",
+			utils.SecKeySsl:                 fmt.Sprintf("%v", sslEnable),
+			utils.SecKeySslissuer:           sslIssuer,
+			utils.SecKeyClusterName:         clusterName,
+			utils.SecKeyGrapleDNS:           completeDomain,
+			utils.SecKeyGrapleVersion:       grappleVersion,
+			utils.SecKeyGrapleLicense:       grappleLicense,
+			utils.SecKeyProviderClusterType: utils.ProviderClusterTypeCivo,
 
 			// Civo specific fields
-			secKeyCivoClusterID: civoClusterID,
-			secKeyCivoRegion:    civoRegion,
-			secKeyCivoMasterIP:  clusterIP,
+			utils.SecKeyCivoClusterID: civoClusterID,
+			utils.SecKeyCivoRegion:    civoRegion,
+			utils.SecKeyCivoMasterIP:  clusterIP,
 		},
 	}
 
@@ -448,8 +446,8 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 			}
 		}
 
-		clusterIP = cluster.MasterIP
-		utils.InfoMessage(fmt.Sprintf("Selected civo master ip: %s", clusterIP))
+		// clusterIP = cluster.MasterIP
+		// utils.InfoMessage(fmt.Sprintf("Selected civo master ip: %s", clusterIP))
 		// Build restConfig from civo cluster's kubeconfig
 		kubeconfigBytes := []byte(cluster.KubeConfig)
 		restConfig, err = clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
@@ -574,812 +572,130 @@ func findClusterByName(client *civogo.Client, name string) (*civogo.KubernetesCl
 	return nil, fmt.Errorf("no cluster found with name '%s'", name)
 }
 
-// // waitForClusterReady polls civo cluster readiness
-// func waitForClusterReady(client *civogo.Client, cluster *civogo.KubernetesCluster) error {
-// 	deadline := time.Now().Add(5 * time.Minute)
-// 	for time.Now().Before(deadline) {
-// 		updated, err := client.GetKubernetesCluster(cluster.ID)
-// 		if err == nil && updated.Ready {
-// 			utils.InfoMessage("Civo cluster is ready now.")
-// 			return nil
-// 		}
-// 		time.Sleep(10 * time.Second)
-// 	}
-// 	return fmt.Errorf("cluster '%s' not ready within timeout", cluster.Name)
-// }
+// setupTraefik installs Traefik as a load balancer in the Kubernetes cluster
+func setupTraefik(restConfig *rest.Config) error {
 
-// -----------------------------------------------------------------------------
-// Step-by-step Deploy Functions (mirroring the Bash steps)
-// -----------------------------------------------------------------------------
-
-// helmDeployReleaseWithRetry tries to install/upgrade a Helm chart up to 3 times
-func helmDeployReleaseWithRetry(kubeClient apiv1.Interface, releaseName, namespace, version, valuesFile string) error {
-	const maxRetries = 3
-	var err error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err = helmInstallOrUpgrade(kubeClient, releaseName, namespace, version, valuesFile)
-		if err == nil {
-			return nil
-		}
-		utils.InfoMessage(fmt.Sprintf("Attempt %d/%d for %s failed: %v", attempt, maxRetries, releaseName, err))
-
-		// The Bash script logs out of ECR registry if it fails.
-		// There's no direct "helm registry logout" equivalent in the Helm Go SDK.
-		// This is just a placeholder if you have custom logic to re-auth with the registry.
-		if attempt < maxRetries {
-			utils.InfoMessage("Retrying after re-auth (placeholder).")
-			// e.g. re-auth to registry here
-		}
-	}
-	return fmt.Errorf("helm deploy of %s failed after %d attempts: %w", releaseName, maxRetries, err)
-}
-
-func helmInstallOrUpgrade(kubeClient apiv1.Interface, releaseName, namespace, chartVersion, valuesFile string) error {
-
-	utils.StartSpinner(fmt.Sprintf("Installing/upgrading release %s...", releaseName))
+	utils.StartSpinner("Setting up Traefik load balancer...")
 	defer utils.StopSpinner()
 
-	// check and create namespace if it doesn't exist
-	checkAndCreateNamespace(kubeClient, namespace)
-
-	// Mirrors the Bash variables
-	awsRegistry := "p7h7z5g3"
-
-	// Construct the OCI chart reference without version in URL
-	// Example: "oci://public.ecr.aws/p7h7z5g3/grsf-init"
-	chartRef := fmt.Sprintf("oci://public.ecr.aws/%s/%s", awsRegistry, releaseName)
-
-	utils.InfoMessage(fmt.Sprintf("chartRef: %s", chartRef))
-
-	// Create the Helm settings (used for CLI-based defaults)
-	settings := cli.New()
-	settings.SetNamespace(namespace)
-	// Prepare an action.Configuration, which wires up Helm internals
-	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(
-		settings.RESTClientGetter(),
-		namespace,
-		os.Getenv("HELM_DRIVER"), // defaults to "secret" if empty
-		log.Printf,
-	); err != nil {
-		return fmt.Errorf("failed to initialize Helm action configuration: %v", err)
-	}
-
-	// Create a registry client (for pulling OCI charts)
-	regClient, err := registry.NewClient()
+	// Initialize Helm client
+	helmCfg, err := utils.GetHelmConfig(restConfig, "traefik")
 	if err != nil {
-		return fmt.Errorf("failed to create registry client: %v", err)
+		utils.ErrorMessage("Failed to initialize Helm configuration: " + err.Error())
+		return err
 	}
-	actionConfig.RegistryClient = regClient
 
-	// Check if release exists
-	histClient := action.NewHistory(actionConfig)
-	histClient.Max = 1
-	_, err = histClient.Run(releaseName)
-
+	// Check if Traefik is already installed
+	listClient := action.NewList(helmCfg)
+	listClient.AllNamespaces = true
+	releases, err := listClient.Run()
 	if err != nil {
-		// Release doesn't exist, do install
-		installClient := action.NewInstall(actionConfig)
-		installClient.Namespace = namespace
-		installClient.ReleaseName = releaseName
-		installClient.ChartPathOptions.Version = chartVersion
-
-		// Locate the chart (pull it if needed) and get a local path
-		chartPath, err := installClient.ChartPathOptions.LocateChart(chartRef, settings)
-		if err != nil {
-			return fmt.Errorf("failed to locate chart from %q: %v", chartRef, err)
-		}
-
-		utils.InfoMessage(fmt.Sprintf("Chartpath %v", chartPath))
-
-		// Load the chart from the local path
-		chartLoaded, err := loader.Load(chartPath)
-		if err != nil {
-			return fmt.Errorf("failed to load chart: %v", err)
-		}
-
-		// Merge values from the file (like '/tmp/values-override.yaml')
-		valueOpts := &values.Options{
-			ValueFiles: []string{valuesFile},
-		}
-		vals, err := valueOpts.MergeValues(getter.All(settings))
-		if err != nil {
-			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
-		}
-
-		utils.InfoMessage("Values from file:")
-		for key, value := range vals {
-			switch v := value.(type) {
-			case map[string]interface{}:
-				utils.InfoMessage(fmt.Sprintf("%s:", key))
-				for subKey, subValue := range v {
-					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
-				}
-			default:
-				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
-			}
-		}
-
-		// Run the install
-		rel, err := installClient.Run(chartLoaded, vals)
-		if err != nil {
-			return fmt.Errorf("failed to install chart %q: %v", chartRef, err)
-		}
-
-		utils.SuccessMessage(fmt.Sprintf("\nSuccessfully installed release %q in namespace %q, chart version: %s",
-			rel.Name, rel.Namespace, rel.Chart.Metadata.Version))
-
-	} else {
-		// Release exists, do upgrade
-		upgradeClient := action.NewUpgrade(actionConfig)
-		upgradeClient.Namespace = namespace
-		upgradeClient.ChartPathOptions.Version = chartVersion
-
-		// Locate the chart (pull it if needed) and get a local path
-		chartPath, err := upgradeClient.ChartPathOptions.LocateChart(chartRef, settings)
-		if err != nil {
-			return fmt.Errorf("failed to locate chart from %q: %v", chartRef, err)
-		}
-
-		// Load the chart from the local path
-		chartLoaded, err := loader.Load(chartPath)
-		if err != nil {
-			return fmt.Errorf("failed to load chart: %v", err)
-		}
-
-		// Merge values from the file (like '-f /tmp/values-override.yaml')
-		valueOpts := &values.Options{
-			ValueFiles: []string{valuesFile},
-		}
-		vals, err := valueOpts.MergeValues(getter.All(settings))
-		if err != nil {
-			return fmt.Errorf("failed to merge values from %q: %v", valuesFile, err)
-		}
-
-		utils.InfoMessage("Values from file:")
-		for key, value := range vals {
-			switch v := value.(type) {
-			case map[string]interface{}:
-				utils.InfoMessage(fmt.Sprintf("%s:", key))
-				for subKey, subValue := range v {
-					utils.InfoMessage(fmt.Sprintf("  %s: %v", subKey, subValue))
-				}
-			default:
-				utils.InfoMessage(fmt.Sprintf("%s: %v", key, value))
-			}
-		}
-		// Run the upgrade
-		rel, err := upgradeClient.Run(releaseName, chartLoaded, vals)
-		if err != nil {
-			return fmt.Errorf("failed to upgrade chart %q: %v", chartRef, err)
-		}
-
-		utils.SuccessMessage(fmt.Sprintf("\nSuccessfully upgraded release %q in namespace %q, chart version: %s",
-			rel.Name, rel.Namespace, rel.Chart.Metadata.Version))
-
-	}
-	return nil
-}
-
-func checkAndCreateNamespace(kubeClient apiv1.Interface, namespace string) error {
-	// Try to retrieve the namespace
-	_, err := kubeClient.CoreV1().Namespaces().Get(context.Background(), namespace, v1.GetOptions{})
-	if err == nil {
-		// Namespace already exists
-		return nil
+		utils.ErrorMessage("Failed to list releases: " + err.Error())
+		return err
 	}
 
-	// If the error says "NotFound," then we need to create the namespace
-	if errors.IsNotFound(err) {
-		_, createErr := kubeClient.CoreV1().Namespaces().Create(
-			context.Background(),
-			&corev1.Namespace{
-				ObjectMeta: v1.ObjectMeta{
-					Name: namespace,
-				},
-			},
-			v1.CreateOptions{},
-		)
-		if createErr != nil {
-			return fmt.Errorf("failed to create namespace %q: %w", namespace, createErr)
-		}
-		return nil
-	}
-
-	// If it's any other error, return it
-	return fmt.Errorf("failed to get namespace %q: %w", namespace, err)
-}
-
-// waitForGrsfInit checks for cert-manager, crossplane, external secrets, etc.
-func waitForGrsfInit(kubeClient apiv1.Interface) error {
-
-	// STEP 1: Check if traefik is installed in kube-system namespace
-	_, err := kubeClient.AppsV1().Deployments("kube-system").Get(context.TODO(), "traefik", v1.GetOptions{})
-	if err == nil {
-		// Wait for Middleware CRD if traefik exists
-		utils.InfoMessage("Waiting for Middleware CRD...")
-		discoveryClient := kubeClient.Discovery()
-		for attempts := 0; attempts < 30; attempts++ {
-			_, resources, err := discoveryClient.ServerGroupsAndResources()
-			if err != nil {
-				time.Sleep(time.Second)
-				continue
-			}
-
-			crdFound := false
-			for _, list := range resources {
-				for _, r := range list.APIResources {
-					if r.Kind == "Middleware" {
-						crdFound = true
-						utils.SuccessMessage("Middleware CRD is available")
-						break
-					}
-				}
-				if crdFound {
-					break
-				}
-			}
-
-			if crdFound {
-				break
-			}
-
-			utils.InfoMessage("Waiting for Middleware CRD...")
-			time.Sleep(time.Second)
-		}
-	}
-
-	// STEP 2: Check if cert-manager is installed in grpl-system namespace
-	for attempts := 0; attempts < 30; attempts++ {
-		deployment, err := kubeClient.AppsV1().Deployments("grpl-system").Get(context.TODO(), "grsf-init-cert-manager", v1.GetOptions{})
-		if err != nil {
-			utils.InfoMessage("Waiting for cert-manager deployment...")
-			time.Sleep(10 * time.Second)
-			continue
-		}
-
-		if deployment.Status.AvailableReplicas == *deployment.Spec.Replicas {
-			utils.SuccessMessage("Cert-manager deployment is available")
+	traefikInstalled := false
+	for _, release := range releases {
+		if release.Name == "traefik" {
+			traefikInstalled = true
 			break
 		}
-
-		utils.InfoMessage("Waiting for cert-manager replicas to be ready...")
-		time.Sleep(10 * time.Second)
 	}
 
-	// Wait for ClusterIssuer CRD
-	discoveryClient := kubeClient.Discovery()
-	for attempts := 0; attempts < 30; attempts++ {
-		_, resources, err := discoveryClient.ServerGroupsAndResources()
+	if !traefikInstalled {
+		utils.InfoMessage("Installing Traefik...")
+
+		// Create Helm environment settings
+		settings := cli.New()
+		settings.SetNamespace("traefik")
+
+		// Add the Traefik Helm repository
+		repoEntry := repo.Entry{
+			Name: "traefik",
+			URL:  "https://helm.traefik.io/traefik",
+		}
+
+		chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
 		if err != nil {
-			utils.InfoMessage("Waiting for ClusterIssuer CRD...")
-			time.Sleep(10 * time.Second)
-			continue
-		}
-
-		crdFound := false
-		for _, list := range resources {
-			for _, r := range list.APIResources {
-				if r.Kind == "ClusterIssuer" {
-					crdFound = true
-					utils.SuccessMessage("ClusterIssuer CRD is available")
-					break
-				}
-			}
-			if crdFound {
-				break
-			}
-		}
-
-		if crdFound {
-			break
-		}
-
-		utils.InfoMessage("Waiting for ClusterIssuer CRD...")
-		time.Sleep(10 * time.Second)
-	}
-
-	// STEP 3: Check if crossplane is installed in grpl-system namespace
-	_, err = kubeClient.AppsV1().Deployments("grpl-system").Get(context.TODO(), "crossplane", v1.GetOptions{})
-	if err == nil {
-		// Wait for Provider CRD
-		discoveryClient := kubeClient.Discovery()
-		for attempts := 0; attempts < 30; attempts++ {
-			_, resources, err := discoveryClient.ServerGroupsAndResources()
-			if err != nil {
-				utils.InfoMessage("Waiting for Provider CRD...")
-				time.Sleep(10 * time.Second)
-				continue
-			}
-
-			crdFound := false
-			for _, list := range resources {
-				for _, r := range list.APIResources {
-					if r.Kind == "Provider" {
-						crdFound = true
-						utils.SuccessMessage("Provider CRD is available")
-						break
-					}
-				}
-				if crdFound {
-					break
-				}
-			}
-
-			if crdFound {
-				break
-			}
-
-			utils.InfoMessage("Waiting for Provider CRD...")
-			time.Sleep(10 * time.Second)
-		}
-	}
-
-	// STEP 4: Check if external-secrets webhook is installed and ready
-	_, err = kubeClient.AppsV1().Deployments("grpl-system").Get(context.TODO(), "grsf-init-external-secrets-webhook", v1.GetOptions{})
-	if err == nil {
-
-		// Wait for webhook deployment to be ready
-		for attempts := 0; attempts < 30; attempts++ {
-			deployment, err := kubeClient.AppsV1().Deployments("grpl-system").Get(context.TODO(), "grsf-init-external-secrets-webhook", v1.GetOptions{})
-			if err != nil {
-				utils.InfoMessage("Waiting for external-secrets webhook deployment...")
-				time.Sleep(10 * time.Second)
-				continue
-			}
-
-			if deployment.Status.AvailableReplicas == *deployment.Spec.Replicas {
-				utils.SuccessMessage("External-secrets webhook deployment is available")
-				break
-			}
-
-			utils.InfoMessage("Waiting for external-secrets webhook replicas to be ready...")
-			time.Sleep(10 * time.Second)
-		}
-	}
-
-	return nil
-}
-
-func waitForGrsf(kubeClient apiv1.Interface, ns string) error {
-	// Cast the interface back to a *apiv1.Clientset so we can use RESTClient().
-	cs, ok := kubeClient.(*apiv1.Clientset)
-	if !ok {
-		return fmt.Errorf("kubeClient is not a *apiv1.Clientset; got %T", kubeClient)
-	}
-
-	// Sleep 10 seconds before checking providers
-	time.Sleep(10 * time.Second)
-
-	// STEP 1: Check if provider-civo deployment exists
-	_, err := cs.AppsV1().Deployments(ns).Get(context.Background(), "provider-civo", v1.GetOptions{})
-	if err == nil {
-		// Wait for provider-civo to be healthy
-		for attempts := 0; attempts < 30; attempts++ {
-			provider, err := cs.RESTClient().Get().
-				AbsPath("apis/pkg.crossplane.io/v1/providers/provider-civo").
-				Do(context.Background()).
-				Raw()
-			if err != nil {
-				time.Sleep(10 * time.Second)
-				continue
-			}
-
-			var unstr unstructured.Unstructured
-			if err := json.Unmarshal(provider, &unstr); err != nil {
-				return fmt.Errorf("failed to unmarshal provider: %w", err)
-			}
-
-			conditions, found, err := unstructured.NestedSlice(unstr.Object, "status", "conditions")
-			if err != nil || !found {
-				time.Sleep(10 * time.Second)
-				continue
-			}
-
-			healthy := false
-			for _, c := range conditions {
-				condition := c.(map[string]interface{})
-				if condition["type"] == "Healthy" && condition["status"] == "True" {
-					healthy = true
-					break
-				}
-			}
-
-			if healthy {
-				utils.InfoMessage("Provider-civo is healthy")
-				break
-			}
-
-			time.Sleep(10 * time.Second)
-		}
-
-		// Wait for provider-civo CRD
-		utils.InfoMessage("Waiting for provider-civo CRD...")
-		for attempts := 0; attempts < 30; attempts++ {
-			_, resources, err := cs.Discovery().ServerGroupsAndResources()
-			if err != nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			found := false
-			for _, list := range resources {
-				for _, r := range list.APIResources {
-					if r.Name == "providerconfigs.civo.crossplane.io" {
-						found = true
-						utils.InfoMessage("Provider-civo CRD is available")
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-
-			if found {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	// STEP 2: Wait for all packages to be healthy
-	pkgs, err := cs.RESTClient().Get().
-		AbsPath(fmt.Sprintf("apis/pkg.crossplane.io/v1/namespaces/%s/providers", ns)).
-		Do(context.Background()).
-		Raw()
-	if err == nil {
-		var pkgList unstructured.UnstructuredList
-		if err := json.Unmarshal(pkgs, &pkgList); err != nil {
-			return fmt.Errorf("failed to unmarshal packages: %w", err)
-		}
-
-		for _, pkg := range pkgList.Items {
-			for attempts := 0; attempts < 30; attempts++ {
-				conditions, found, err := unstructured.NestedSlice(pkg.Object, "status", "conditions")
-				if err != nil || !found {
-					time.Sleep(10 * time.Second)
-					continue
-				}
-
-				healthy := false
-				for _, c := range conditions {
-					condition := c.(map[string]interface{})
-					if condition["type"] == "Healthy" && condition["status"] == "True" {
-						healthy = true
-						break
-					}
-				}
-
-				if healthy {
-					break
-				}
-				time.Sleep(10 * time.Second)
-			}
-		}
-	}
-
-	// STEP 3: Check for provider-helm CRD if deployment exists
-	_, err = cs.AppsV1().Deployments(ns).Get(context.Background(), "provider-helm", v1.GetOptions{})
-	if err == nil {
-		utils.InfoMessage("Waiting for provider-helm CRD...")
-		for attempts := 0; attempts < 30; attempts++ {
-			_, resources, err := cs.Discovery().ServerGroupsAndResources()
-			if err != nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			found := false
-			for _, list := range resources {
-				for _, r := range list.APIResources {
-					if r.Name == "providerconfigs.helm.crossplane.io" {
-						found = true
-						utils.InfoMessage("Provider-helm CRD is available")
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-
-			if found {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	// STEP 4: Check for provider-kubernetes CRD if deployment exists
-	_, err = cs.AppsV1().Deployments(ns).Get(context.Background(), "provider-kubernetes", v1.GetOptions{})
-	if err == nil {
-		utils.InfoMessage("Waiting for provider-kubernetes CRD...")
-		for attempts := 0; attempts < 30; attempts++ {
-			_, resources, err := cs.Discovery().ServerGroupsAndResources()
-			if err != nil {
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			found := false
-			for _, list := range resources {
-				for _, r := range list.APIResources {
-					if r.Name == "providerconfigs.apiv1.crossplane.io" {
-						found = true
-						utils.InfoMessage("Provider-kubernetes CRD is available")
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-
-			if found {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	return nil
-}
-
-// waitForGrsfConfig checks for CRDs, XRDs, etc.
-// waitForGrsfConfig waits for specific CRDs to be available and waits for all XRDs to reach the "Offered" condition
-
-func waitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) error {
-	discoveryClient := kubeClient.Discovery()
-
-	var requiredKinds = []string{
-		"CompositeManagedApi",
-		"CompositeManagedUIModule",
-		"CompositeManagedDataSource",
-	}
-
-	// 1) Wait for the CRDs to show up via discovery
-	found := make(map[string]bool)
-	for attempts := 0; attempts < 30; attempts++ {
-		// Grab the full list of server groups/resources
-		_, resourceLists, err := discoveryClient.ServerGroupsAndResources()
-		if err != nil {
-			// On an error, just wait and retry
-			time.Sleep(time.Second)
-			continue
-		}
-
-		// Look for each required "kind" in the returned resources
-		for _, list := range resourceLists {
-			for _, r := range list.APIResources {
-				// If the resource's Kind is one of our required ones, mark it found
-				if utils.Contains(requiredKinds, r.Kind) {
-					found[r.Kind] = true
-				}
-			}
-		}
-
-		// Check if we've found all required kinds
-		// Checks if for every requiredKind we have found[kind] == true
-		allFound := true
-		for _, r := range requiredKinds {
-			if !found[r] {
-				allFound = false
-				break
-			}
-		}
-		if allFound {
-			log.Println("All required CRDs are available!")
-			break
-		}
-
-		log.Println("Waiting for required CRDs to appear...")
-		time.Sleep(time.Second)
-
-		// If we've hit the last attempt and not all are found, error
-		if attempts == 29 {
-			// Checks if for every requiredKind we have found[kind] == true
-			allFound := true
-			for _, r := range requiredKinds {
-				if !found[r] {
-					allFound = false
-					break
-				}
-			}
-			if !allFound {
-				return fmt.Errorf("timeout waiting for all required CRDs to appear")
-			}
-		}
-	}
-
-	// Wait for all XRDs to reach "Offered" condition
-	dynamicClient, err := dynamic.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create dynamic client: %w", err)
-	}
-
-	// Get list of XRDs
-	xrds, err := dynamicClient.Resource(schema.GroupVersionResource{
-		Group:    "apiextensions.crossplane.io",
-		Version:  "v1",
-		Resource: "compositeresourcedefinitions",
-	}).List(context.Background(), v1.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list XRDs: %w", err)
-	}
-
-	// Wait for each XRD to reach "Offered" condition
-	for _, xrd := range xrds.Items {
-		err = waitForCondition(dynamicClient, xrd.GetName(), "Offered")
-		if err != nil {
-			return fmt.Errorf("failed waiting for XRD %s: %w", xrd.GetName(), err)
-		}
-	}
-
-	log.Println("All required CRDs and XRDs are available!")
-	return nil
-}
-
-func waitForCondition(client dynamic.Interface, xrdName string, condition string) error {
-	for attempts := 0; attempts < 30; attempts++ {
-		xrd, err := client.Resource(schema.GroupVersionResource{
-			Group:    "apiextensions.crossplane.io",
-			Version:  "v1",
-			Resource: "compositeresourcedefinitions",
-		}).Get(context.Background(), xrdName, v1.GetOptions{})
-
-		if err != nil {
+			utils.ErrorMessage("Failed to create chart repository object: " + err.Error())
 			return err
 		}
 
-		conditions, found, err := unstructured.NestedSlice(xrd.Object, "status", "conditions")
-		if err != nil || !found {
-			time.Sleep(time.Second)
-			continue
+		// Add repo to repositories.yaml
+		repoFile := settings.RepositoryConfig
+		b, err := os.ReadFile(repoFile)
+		if err != nil && !os.IsNotExist(err) {
+			utils.ErrorMessage("Failed to read repository file: " + err.Error())
+			return err
 		}
 
-		for _, c := range conditions {
-			cond := c.(map[string]interface{})
-			if cond["type"] == condition && cond["status"] == "True" {
-				return nil
-			}
+		var f repo.File
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			utils.ErrorMessage("Failed to unmarshal repository file: " + err.Error())
+			return err
 		}
 
-		time.Sleep(time.Second)
-	}
+		// Add new repo or update existing
+		f.Add(&repoEntry)
 
-	return fmt.Errorf("timeout waiting for condition %s on XRD %s", condition, xrdName)
-}
+		if err := f.WriteFile(repoFile, 0644); err != nil {
+			utils.ErrorMessage("Failed to write repository file: " + err.Error())
+			return err
+		}
 
-func createClusterIssuer(kubeClient apiv1.Interface) error {
-	// Apply clusterissuer.yaml if SSL is enabled
-	if sslEnable {
-		utils.InfoMessage("Applying SSL cluster issuer configuration...")
-
-		// Read and apply the cluster issuer manifest
-		issuerBytes, err := os.ReadFile("files/clusterissuer.yaml")
+		_, err = chartRepo.DownloadIndexFile()
 		if err != nil {
-			return fmt.Errorf("failed to read cluster issuer manifest: %w", err)
+			utils.ErrorMessage("Failed to download repository index: " + err.Error())
+			return err
 		}
 
-		// Apply using dynamic client
-		config, err := kubeClient.Discovery().RESTClient().Get().RequestURI("/api/v1").DoRaw(context.TODO())
+		// Create install client
+		installClient := action.NewInstall(helmCfg)
+		installClient.Namespace = "traefik"
+		installClient.CreateNamespace = true
+		installClient.ReleaseName = "traefik"
+		installClient.Version = ""
+
+		// Locate and load the chart
+		chartPath, err := installClient.ChartPathOptions.LocateChart("traefik/traefik", settings)
 		if err != nil {
-			return fmt.Errorf("failed to get REST config: %w", err)
+			utils.ErrorMessage("Failed to locate Traefik chart: " + err.Error())
+			return err
 		}
 
-		dynamicClient, err := dynamic.NewForConfig(&rest.Config{Host: string(config)})
+		// Load chart
+		chart, err := loader.Load(chartPath)
 		if err != nil {
-			return fmt.Errorf("failed to create dynamic client: %w", err)
+			utils.ErrorMessage("Failed to load Traefik chart: " + err.Error())
+			return err
 		}
 
-		decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(issuerBytes), 4096)
-		var obj unstructured.Unstructured
-		if err := decoder.Decode(&obj); err != nil {
-			return fmt.Errorf("failed to decode cluster issuer manifest: %w", err)
+		// Set values
+		values := map[string]interface{}{
+			"service": map[string]interface{}{
+				"type": "LoadBalancer",
+			},
+			"ports": map[string]interface{}{
+				"web": map[string]interface{}{
+					"port": 80,
+				},
+				"websecure": map[string]interface{}{
+					"port": 443,
+				},
+			},
 		}
 
-		_, err = dynamicClient.Resource(schema.GroupVersionResource{
-			Group:    "cert-manager.io",
-			Version:  "v1",
-			Resource: "clusterissuers",
-		}).Create(context.TODO(), &obj, v1.CreateOptions{})
+		// Install chart
+		_, err = installClient.Run(chart, values)
 		if err != nil {
-			return fmt.Errorf("failed to apply cluster issuer: %w", err)
+			utils.ErrorMessage("Failed to install Traefik: " + err.Error())
+			return err
 		}
 
-		utils.SuccessMessage("Applied cluster issuer configuration")
+		utils.InfoMessage("Traefik installed successfully")
+	} else {
+		utils.InfoMessage("Traefik already installed")
 	}
 
 	return nil
 }
-
-// waitForGrsfIntegration final checks
-func waitForGrsfIntegration(restConfig *rest.Config) error {
-	// Wait for all Crossplane packages to be healthy
-	utils.InfoMessage("Checking Crossplane package health...")
-
-	deadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(deadline) {
-
-		dynamicClient, err := dynamic.NewForConfig(restConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create dynamic client: %w", err)
-		}
-
-		// Try to list all types of packages (providers, configurations, functions)
-		gvrs := []schema.GroupVersionResource{
-			{Group: "pkg.crossplane.io", Version: "v1", Resource: "providers"},
-			{Group: "pkg.crossplane.io", Version: "v1", Resource: "configurations"},
-			{Group: "pkg.crossplane.io", Version: "v1beta1", Resource: "functions"},
-		}
-
-		var allPackages unstructured.UnstructuredList
-		for _, gvr := range gvrs {
-			pkgList, err := dynamicClient.Resource(gvr).List(context.TODO(), v1.ListOptions{})
-			if err != nil {
-				if !strings.Contains(err.Error(), "the server could not find the requested resource") {
-					utils.ErrorMessage(fmt.Sprintf("Failed to list Crossplane %s: %v", gvr.Resource, err))
-					return err
-				}
-				continue
-			}
-			allPackages.Items = append(allPackages.Items, pkgList.Items...)
-		}
-
-		packages := &allPackages
-
-		if len(packages.Items) == 0 {
-			utils.InfoMessage("No Crossplane packages found yet...")
-			time.Sleep(10 * time.Second)
-			continue
-		}
-
-		allHealthy := true
-		for _, pkg := range packages.Items {
-			utils.InfoMessage(fmt.Sprintf("Checking package %s", pkg.GetName()))
-			conditions, found, err := unstructured.NestedSlice(pkg.Object, "status", "conditions")
-			if err != nil || !found {
-				allHealthy = false
-				break
-			}
-
-			isHealthy := false
-			for _, condition := range conditions {
-				conditionMap := condition.(map[string]interface{})
-				if conditionMap["type"] == "Healthy" && conditionMap["status"] == "True" {
-					isHealthy = true
-					break
-				}
-			}
-
-			if !isHealthy {
-				allHealthy = false
-				utils.InfoMessage(fmt.Sprintf("Package %s not yet healthy", pkg.GetName()))
-				break
-			}
-		}
-
-		if allHealthy {
-			utils.SuccessMessage("All Crossplane packages are healthy")
-			return nil
-		}
-
-		time.Sleep(10 * time.Second)
-	}
-
-	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
-}
-
-// func getEnv(key, defVal string) string {
-// 	val := strings.TrimSpace(SystemGetenv(key))
-// 	if val == "" {
-// 		return defVal
-// 	}
-// 	return val
-// }
-
-// // If you're in a controlled environment, you can just use os.Getenv directly
-// func SystemGetenv(key string) string {
-// 	return "" // or os.Getenv(key)
-// }
