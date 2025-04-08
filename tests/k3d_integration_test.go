@@ -20,43 +20,22 @@ import (
 )
 
 const (
-	civoClusterName = "civo-integration-test"
+	k3dClusterName = "k3d-integration-test"
 )
 
-func TestCivoIntegration(t *testing.T) {
-	// Setup
-	if civoAPIKey := os.Getenv("CIVO_API_TOKEN"); civoAPIKey == "" {
-		t.Fatal("CIVO_API_TOKEN environment variable is required")
-	}
-
+func TestK3dIntegration(t *testing.T) {
 	t.Run("Check if cluster exists", func(t *testing.T) {
-		utils.InfoMessage("Starting civo integration test suite")
+		utils.InfoMessage("Starting k3d integration test suite")
 		log.Println("Starting test: Check if cluster exists")
 		os.Remove("/tmp/failed_flag")
 
-		// Configure Civo CLI
-		err := runCmdWithoutLogs("civo", "apikey", "add", "grapple", os.Getenv("CIVO_API_TOKEN"))
-		if err != nil {
-			setFailed(t)
-		}
-
-		err = runCmdWithoutLogs("civo", "apikey", "current", "grapple")
-		if err != nil {
-			setFailed(t)
-		}
-
-		err = runCmdWithoutLogs("civo", "region", "use", "fra1")
-		if err != nil {
-			setFailed(t)
-		}
-
 		// Check if cluster exists
 		utils.InfoMessage("Checking if cluster exists")
-		err = runCmdWithoutLogs("civo", "k8s", "show", civoClusterName)
+		err := runCmdWithoutLogs("k3d", "cluster", "list", k3dClusterName)
 		if err == nil {
 			// Cluster exists, delete it
 			utils.InfoMessage("Cluster exists, deleting it")
-			err = runCmdWithoutLogs("civo", "k8s", "delete", civoClusterName, "-y")
+			err = runCmdWithoutLogs("k3d", "cluster", "delete", k3dClusterName)
 			if err != nil {
 				setFailed(t)
 			}
@@ -67,10 +46,8 @@ func TestCivoIntegration(t *testing.T) {
 		log.Println("Starting test: Create and Install Grapple on Cluster")
 		checkPreviousTestFailed(t)
 
-		err := runCmd("grapple", "civo", "create-install",
-			"--cluster-name="+civoClusterName,
-			"--civo-region=fra1",
-			"--civo-email-address=info@grapple-solutions.com",
+		err := runCmd("grapple", "k3d", "create-install",
+			"--cluster-name="+k3dClusterName,
 			"--auto-confirm",
 			"--wait",
 			"--install-kubeblocks")
@@ -232,7 +209,7 @@ func TestCivoIntegration(t *testing.T) {
 		log.Println("Starting test: Destroy the cluster")
 		checkPreviousTestFailed(t)
 		log.Println("Destroying the cluster")
-		err := runCmd("grapple", "civo", "remove", "--cluster-name", civoClusterName, "--civo-region", "fra1", "-y")
+		err := runCmd("grapple", "k3d", "remove", "--cluster-name", k3dClusterName, "-y")
 		if err != nil {
 			setFailed(t)
 		}
