@@ -48,7 +48,7 @@ var (
 
 // Wait for the cluster to be ready
 func waitForClusterReady(client *civogo.Client, cluster *civogo.KubernetesCluster) error {
-	endTime := time.Now().Add(5 * time.Minute)
+	endTime := time.Now().Add(10 * time.Minute)
 
 	for time.Now().Before(endTime) {
 		status, err := client.GetKubernetesCluster(cluster.ID)
