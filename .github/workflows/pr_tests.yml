@@ -46,10 +46,10 @@ jobs:
         env:
           CIVO_API_TOKEN: ${{ secrets.CIVO_API_KEY }}
         run: |
-        
+
           echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> ~/.bashrc
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
           cd tests
-          # go test -timeout 30m -run TestCivoIntegration
+          go test -timeout 30m -run TestCivoIntegration
           go test -timeout 30m -run TestK3dIntegration
