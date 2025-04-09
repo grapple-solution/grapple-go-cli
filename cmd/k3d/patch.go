@@ -180,29 +180,71 @@ func patchCoreDNS(restConfig *rest.Config) error {
 	utils.SuccessMessage("Successfully applied ConfigMap coredns-custom")
 	return nil
 }
-
 func configureDNSForLinux() error {
+	// Check if files exist before modifying them
+	resolvExists := fileExists("/etc/resolv.conf")
+	dnsmasqExists := fileExists("/etc/dnsmasq.conf")
+	nmConfigExists := fileExists("/etc/NetworkManager/conf.d/dns-local.conf")
 
-	// Create resolv.conf file
-	resolvContent := "nameserver 127.0.0.1\nnameserver 8.8.8.8"
-	if err := os.WriteFile("/tmp/resolv.conf", []byte(resolvContent), 0644); err != nil {
-		return fmt.Errorf("failed to create temporary resolv.conf: %w", err)
+	// Backup existing files if they exist
+	if resolvExists {
+		if err := exec.Command("sudo", "cp", "/etc/resolv.conf", "/etc/resolv.conf.grapple.bak").Run(); err != nil {
+			utils.InfoMessage("Failed to backup resolv.conf, continuing anyway")
+		}
 	}
 
-	// Create dnsmasq.conf file
-	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\n"
+	if dnsmasqExists {
+		if err := exec.Command("sudo", "cp", "/etc/dnsmasq.conf", "/etc/dnsmasq.conf.grapple.bak").Run(); err != nil {
+			utils.InfoMessage("Failed to backup dnsmasq.conf, continuing anyway")
+		}
+	}
+
+	// Read existing dnsmasq.conf if it exists
+	var existingDnsmasqContent string
+	if dnsmasqExists {
+		content, err := os.ReadFile("/etc/dnsmasq.conf")
+		if err == nil {
+			existingDnsmasqContent = string(content)
+		}
+	}
+
+	// Create or update dnsmasq.conf
+	dnsmasqContent := existingDnsmasqContent
+	if !strings.Contains(dnsmasqContent, "address=/grpl-k3d.dev/127.0.0.1") {
+		if dnsmasqContent != "" && !strings.HasSuffix(dnsmasqContent, "\n") {
+			dnsmasqContent += "\n"
+		}
+		dnsmasqContent += "address=/grpl-k3d.dev/127.0.0.1\n"
+	}
+
+	// Ensure listen-address and DNS servers are configured
+	if !strings.Contains(dnsmasqContent, "listen-address=127.0.0.1") {
+		dnsmasqContent = "listen-address=127.0.0.1\n" + dnsmasqContent
+	}
+	if !strings.Contains(dnsmasqContent, "server=8.8.8.8") {
+		dnsmasqContent = dnsmasqContent + "server=8.8.8.8\n"
+	}
+	if !strings.Contains(dnsmasqContent, "server=8.8.4.4") {
+		dnsmasqContent = dnsmasqContent + "server=8.8.4.4\n"
+	}
+
 	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
 		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
 	}
 
-	// Create NetworkManager DNS configuration
-	nmContent := "[main]\ndns=dnsmasq"
-	if err := os.WriteFile("/tmp/dns-local.conf", []byte(nmContent), 0644); err != nil {
-		return fmt.Errorf("failed to create temporary NetworkManager DNS config: %w", err)
+	// Create NetworkManager DNS configuration if it doesn't exist
+	if !nmConfigExists {
+		nmContent := "[main]\ndns=dnsmasq"
+		if err := os.WriteFile("/tmp/dns-local.conf", []byte(nmContent), 0644); err != nil {
+			return fmt.Errorf("failed to create temporary NetworkManager DNS config: %w", err)
+		}
 	}
 
 	// Display commands to be executed
-	commandsToRun := "sudo cp /tmp/resolv.conf /etc/resolv.conf && sudo cp /tmp/dnsmasq.conf /etc/dnsmasq.conf && sudo mkdir -p /etc/NetworkManager/conf.d && sudo cp /tmp/dns-local.conf /etc/NetworkManager/conf.d/dns-local.conf"
+	commandsToRun := "sudo cp /tmp/dnsmasq.conf /etc/dnsmasq.conf"
+	if !nmConfigExists {
+		commandsToRun += " && sudo mkdir -p /etc/NetworkManager/conf.d && sudo cp /tmp/dns-local.conf /etc/NetworkManager/conf.d/dns-local.conf"
+	}
 	utils.InfoMessage("Going to run following commands:")
 	fmt.Println(commandsToRun)
 
@@ -218,20 +260,43 @@ func configureDNSForLinux() error {
 	}
 
 	// Execute the commands
-	if err := exec.Command("sudo", "rm", "/etc/resolv.conf").Run(); err != nil {
-		return fmt.Errorf("failed to remove existing resolv.conf: %w", err)
-	}
-	if err := exec.Command("sudo", "cp", "/tmp/resolv.conf", "/etc/resolv.conf").Run(); err != nil {
-		return fmt.Errorf("failed to copy resolv.conf: %w", err)
-	}
 	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/etc/dnsmasq.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
-	if err := exec.Command("sudo", "mkdir", "-p", "/etc/NetworkManager/conf.d").Run(); err != nil {
-		return fmt.Errorf("failed to create NetworkManager conf.d directory: %w", err)
+
+	if !nmConfigExists {
+		if err := exec.Command("sudo", "mkdir", "-p", "/etc/NetworkManager/conf.d").Run(); err != nil {
+			return fmt.Errorf("failed to create NetworkManager conf.d directory: %w", err)
+		}
+		if err := exec.Command("sudo", "cp", "/tmp/dns-local.conf", "/etc/NetworkManager/conf.d/dns-local.conf").Run(); err != nil {
+			return fmt.Errorf("failed to copy NetworkManager DNS config: %w", err)
+		}
 	}
-	if err := exec.Command("sudo", "cp", "/tmp/dns-local.conf", "/etc/NetworkManager/conf.d/dns-local.conf").Run(); err != nil {
-		return fmt.Errorf("failed to copy NetworkManager DNS config: %w", err)
+
+	// Update resolv.conf to include 127.0.0.1 if it's not already there
+	if resolvExists {
+		content, err := os.ReadFile("/etc/resolv.conf")
+		if err == nil {
+			resolvContent := string(content)
+			if !strings.Contains(resolvContent, "nameserver 127.0.0.1") {
+				newResolvContent := "nameserver 127.0.0.1\n" + resolvContent
+				if err := os.WriteFile("/tmp/resolv.conf", []byte(newResolvContent), 0644); err != nil {
+					return fmt.Errorf("failed to create temporary resolv.conf: %w", err)
+				}
+				if err := exec.Command("sudo", "cp", "/tmp/resolv.conf", "/etc/resolv.conf").Run(); err != nil {
+					return fmt.Errorf("failed to update resolv.conf: %w", err)
+				}
+			}
+		}
+	} else {
+		// Create a new resolv.conf if it doesn't exist
+		resolvContent := "nameserver 127.0.0.1\nnameserver 8.8.8.8"
+		if err := os.WriteFile("/tmp/resolv.conf", []byte(resolvContent), 0644); err != nil {
+			return fmt.Errorf("failed to create temporary resolv.conf: %w", err)
+		}
+		if err := exec.Command("sudo", "cp", "/tmp/resolv.conf", "/etc/resolv.conf").Run(); err != nil {
+			return fmt.Errorf("failed to copy resolv.conf: %w", err)
+		}
 	}
 
 	// Restart services
@@ -240,7 +305,7 @@ func configureDNSForLinux() error {
 	}
 
 	if err := exec.Command("sudo", "systemctl", "restart", "dnsmasq").Run(); err != nil {
-		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error presist then please restart your system and try again")
+		utils.InfoMessage("Failed to restart dnsmasq, please retry, if error persists then please restart your system and try again")
 		return fmt.Errorf("failed to restart dnsmasq: %w", err)
 	}
 	if err := exec.Command("sudo", "systemctl", "enable", "dnsmasq").Run(); err != nil {
@@ -249,12 +314,10 @@ func configureDNSForLinux() error {
 
 	return nil
 }
+
 func configureDNSForMacOS() error {
-	// Create dnsmasq.conf file
-	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\nport=5353\n"
-	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
-		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
-	}
+	// Check if files exist before modifying them
+	dnsmasqPath := ""
 
 	// Get homebrew prefix dynamically
 	homebrewPrefix, err := exec.Command("brew", "--prefix").Output()
@@ -262,10 +325,59 @@ func configureDNSForMacOS() error {
 		return fmt.Errorf("failed to get homebrew prefix: %w", err)
 	}
 	brewPrefix := strings.TrimSpace(string(homebrewPrefix))
-	dnsmasqPath := fmt.Sprintf("%s/etc/dnsmasq.conf", brewPrefix)
+	dnsmasqPath = fmt.Sprintf("%s/etc/dnsmasq.conf", brewPrefix)
+
+	dnsmasqExists := fileExists(dnsmasqPath)
+	resolverExists := fileExists("/etc/resolver/grpl-k3d.dev")
+
+	// Backup existing files if they exist
+	if dnsmasqExists {
+		if err := exec.Command("sudo", "cp", dnsmasqPath, dnsmasqPath+".grapple.bak").Run(); err != nil {
+			utils.InfoMessage("Failed to backup dnsmasq.conf, continuing anyway")
+		}
+	}
+
+	// Read existing dnsmasq.conf if it exists
+	var existingDnsmasqContent string
+	if dnsmasqExists {
+		content, err := os.ReadFile(dnsmasqPath)
+		if err == nil {
+			existingDnsmasqContent = string(content)
+		}
+	}
+
+	// Create or update dnsmasq.conf
+	dnsmasqContent := existingDnsmasqContent
+	if !strings.Contains(dnsmasqContent, "address=/grpl-k3d.dev/127.0.0.1") {
+		if dnsmasqContent != "" && !strings.HasSuffix(dnsmasqContent, "\n") {
+			dnsmasqContent += "\n"
+		}
+		dnsmasqContent += "address=/grpl-k3d.dev/127.0.0.1\n"
+	}
+
+	// Ensure listen-address and DNS servers are configured
+	if !strings.Contains(dnsmasqContent, "listen-address=127.0.0.1") {
+		dnsmasqContent = "listen-address=127.0.0.1\n" + dnsmasqContent
+	}
+	if !strings.Contains(dnsmasqContent, "server=8.8.8.8") {
+		dnsmasqContent = dnsmasqContent + "server=8.8.8.8\n"
+	}
+	if !strings.Contains(dnsmasqContent, "server=8.8.4.4") {
+		dnsmasqContent = dnsmasqContent + "server=8.8.4.4\n"
+	}
+	if !strings.Contains(dnsmasqContent, "port=5353") {
+		dnsmasqContent = dnsmasqContent + "port=5353\n"
+	}
+
+	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
+	}
 
 	// Display commands to be executed
-	commandsToRun := fmt.Sprintf("sudo cp /tmp/dnsmasq.conf %s && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\nport 5353\" | sudo tee /etc/resolver/grpl-k3d.dev", dnsmasqPath)
+	commandsToRun := fmt.Sprintf("sudo cp /tmp/dnsmasq.conf %s", dnsmasqPath)
+	if !resolverExists {
+		commandsToRun += " && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\nport 5353\" | sudo tee /etc/resolver/grpl-k3d.dev"
+	}
 	utils.InfoMessage("Going to run following commands:")
 	fmt.Println(commandsToRun)
 
@@ -280,21 +392,24 @@ func configureDNSForMacOS() error {
 		}
 	}
 
+	// Execute the commands
 	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", dnsmasqPath).Run(); err != nil {
-		return fmt.Errorf("failed to copy dnsmasq.conf to %s: %w", dnsmasqPath, err)
+		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
 
-	if err := exec.Command("sudo", "mkdir", "-p", "/etc/resolver").Run(); err != nil {
-		return fmt.Errorf("failed to create resolver directory: %w", err)
-	}
+	if !resolverExists {
+		if err := exec.Command("sudo", "mkdir", "-p", "/etc/resolver").Run(); err != nil {
+			return fmt.Errorf("failed to create resolver directory: %w", err)
+		}
 
-	// Create resolver file with port 5353
-	resolverContent := "nameserver 127.0.0.1\nport 5353"
-	if err := os.WriteFile("/tmp/resolver-grpl-k3d.dev", []byte(resolverContent), 0644); err != nil {
-		return fmt.Errorf("failed to create temporary resolver file: %w", err)
-	}
-	if err := exec.Command("sudo", "cp", "/tmp/resolver-grpl-k3d.dev", "/etc/resolver/grpl-k3d.dev").Run(); err != nil {
-		return fmt.Errorf("failed to copy resolver file: %w", err)
+		// Create resolver file with port 5353
+		resolverContent := "nameserver 127.0.0.1\nport 5353"
+		if err := os.WriteFile("/tmp/resolver-grpl-k3d.dev", []byte(resolverContent), 0644); err != nil {
+			return fmt.Errorf("failed to create temporary resolver file: %w", err)
+		}
+		if err := exec.Command("sudo", "cp", "/tmp/resolver-grpl-k3d.dev", "/etc/resolver/grpl-k3d.dev").Run(); err != nil {
+			return fmt.Errorf("failed to copy resolver file: %w", err)
+		}
 	}
 
 	// Restart dnsmasq service
@@ -303,24 +418,27 @@ func configureDNSForMacOS() error {
 		return fmt.Errorf("failed to restart dnsmasq: %w", err)
 	}
 
-	// Add 127.0.0.1 to DNS servers for all network services
-	networkServices, err := exec.Command("networksetup", "-listallnetworkservices").Output()
-	if err != nil {
-		return fmt.Errorf("failed to list network services: %w", err)
-	}
+	// Only modify the main network interfaces, not all services
+	mainInterfaces := []string{"Wi-Fi", "Ethernet"}
 
-	services := strings.Split(string(networkServices), "\n")
-	for _, service := range services {
-		service = strings.TrimSpace(service)
-		if service == "" || strings.Contains(service, "asterisk") {
+	for _, service := range mainInterfaces {
+		utils.InfoMessage(fmt.Sprintf("Setting DNS server for %s", service))
+
+		// Check if this network service exists before trying to configure it
+		checkCmd := exec.Command("networksetup", "-getinfo", service)
+		if err := checkCmd.Run(); err != nil {
+			utils.InfoMessage(fmt.Sprintf("Network service %s not available, skipping", service))
 			continue
 		}
 
-		utils.InfoMessage(fmt.Sprintf("Setting DNS server for %s", service))
-		if err := exec.Command("networksetup", "-setdnsservers", service, "127.0.0.1").Run(); err != nil {
+		// Add 127.0.0.1 as the primary DNS server, along with Google DNS servers as fallbacks
+		if err := exec.Command("networksetup", "-setdnsservers", service, "127.0.0.1", "8.8.8.8", "8.8.4.4").Run(); err != nil {
 			utils.InfoMessage(fmt.Sprintf("Failed to set DNS server for %s: %v", service, err))
 		}
 	}
+
+	utils.InfoMessage("DNS configuration completed successfully")
+	utils.InfoMessage("NOTE: Only Wi-Fi and Ethernet interfaces have been modified to use local DNS")
 
 	return nil
 }
