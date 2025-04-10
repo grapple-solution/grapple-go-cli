@@ -121,11 +121,11 @@ func patchCoreDNS(restConfig *rest.Config) error {
 		grappleDNS = "grpl-k3d.dev"
 	}
 	// Get the path to the coredns-custom.yaml file
-	resourcePath, err := utils.GetResourcePath("files")
-	if err != nil {
-		return fmt.Errorf("failed to get resource path: %w", err)
-	}
-	// resourcePath := "files"
+	// resourcePath, err := utils.GetResourcePath("files")
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get resource path: %w", err)
+	// }
+	resourcePath := "files"
 
 	// Read the ConfigMap yaml file
 	configMapPath := path.Join(resourcePath, "coredns-custom.yaml")
