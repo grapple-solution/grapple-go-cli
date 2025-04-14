@@ -49,6 +49,7 @@ jobs:
             "linux amd64"
             "darwin amd64"
             "darwin arm64"
+            "windows amd64"
           )
 
           for platform in "${platforms[@]}"; do
@@ -58,12 +59,28 @@ jobs:
             build_dir="build/${output_name}"
 
             mkdir -p "$build_dir"
-            GOOS=$os GOARCH=$arch go build -o "$build_dir/grapple" main.go
+            
+            # Set executable name based on OS
+            exe_name="grapple"
+            if [ "$os" == "windows" ]; then
+              exe_name="grapple.exe"
+            fi
+            
+            # Build the binary
+            GOOS=$os GOARCH=$arch go build -o "$build_dir/$exe_name" main.go
 
+            # Copy required files
             cp -r template-files "$build_dir/"
             cp -r files "$build_dir/"
 
-            tar -czvf "dist/${output_name}.tar.gz" -C "build" "${output_name}"
+            # Package based on OS
+            if [ "$os" == "windows" ]; then
+              # Create zip for Windows
+              (cd "build" && zip -r "../dist/${output_name}.zip" "${output_name}")
+            else
+              # Create tar.gz for Unix systems
+              tar -czvf "dist/${output_name}.tar.gz" -C "build" "${output_name}"
+            fi
           done
 
       - name: Create GitHub Release and Upload Assets
@@ -71,6 +88,6 @@ jobs:
           gh release create "${{ env.NEW_VERSION }}" \
             --title "${{ env.NEW_VERSION }}" \
             --notes "Automated release from main branch." \
-            dist/*.tar.gz
+            dist/*.tar.gz dist/*.zip
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
