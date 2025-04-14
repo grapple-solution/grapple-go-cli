@@ -9,11 +9,16 @@ jobs:
   stable-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write 
+      contents: write
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'  # Adjust if needed
 
       - name: Get Current Version
         id: version
@@ -37,11 +42,35 @@ jobs:
           git commit -m "Bump version to v${{ env.NEW_VERSION }}"
           git push
 
-      - name: Create Stable Release
+      - name: Build & Package CLI for Multiple OS
+        run: |
+          mkdir -p dist
+          platforms=(
+            "linux amd64"
+            "darwin amd64"
+            "darwin arm64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            os=$(echo $platform | cut -d' ' -f1)
+            arch=$(echo $platform | cut -d' ' -f2)
+            output_name="grapple-${os}-${arch}"
+            build_dir="build/${output_name}"
+
+            mkdir -p "$build_dir"
+            GOOS=$os GOARCH=$arch go build -o "$build_dir/grapple" main.go
+
+            cp -r template-files "$build_dir/"
+            cp -r files "$build_dir/"
+
+            tar -czvf "dist/${output_name}.tar.gz" -C "build" "${output_name}"
+          done
+
+      - name: Create GitHub Release and Upload Assets
         run: |
           gh release create "${{ env.NEW_VERSION }}" \
             --title "${{ env.NEW_VERSION }}" \
             --notes "Automated release from main branch." \
-
+            dist/*.tar.gz
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
