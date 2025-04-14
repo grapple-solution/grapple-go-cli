@@ -70,18 +70,6 @@ Common commands:
 
 ---
 
-## 🧑‍💻 Development
-
-To build from source:
-
-```bash
-git clone https://github.com/grapple-solution/grapple-go-cli.git
-cd grapple-go-cli
-go build -o grapple main.go
-./grapple help
-```
-
----
 
 ## 🤝 Contributing
 
