@@ -47,7 +47,7 @@ $Version = "0.0.15"; Invoke-Expression (New-Object System.Net.WebClient).Downloa
 Or download the `install.ps1` script and run it with parameters:
 
 ```powershell
-.\install.ps1 -Version "v0.0.15"
+.\install.ps1 -Version "0.0.15"
 ```
 
 The CLI binary will be installed to `C:\Program Files\Grapple`, and the required templates and files will be placed in `C:\Program Files\Grapple\share`.

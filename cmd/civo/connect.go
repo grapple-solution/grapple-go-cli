@@ -125,10 +125,10 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 // Configure kubectl for the created cluster
 func configureKubeConfig(kubeConfig string) (*rest.Config, error) {
-	// Get home directory
-	home := os.Getenv("HOME")
-	if home == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
+	// Get home directory in a cross-platform way
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
 	// Create .kube directory if it doesn't exist
