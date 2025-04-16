@@ -41,7 +41,7 @@ Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.
 Install a specific version:
 
 ```powershell
-$Version = "v0.0.15"; Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
+$Version = "0.0.15"; Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
 ```
 
 Or download the `install.ps1` script and run it with parameters:
