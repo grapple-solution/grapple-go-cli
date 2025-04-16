@@ -30,6 +30,28 @@ curl -fsSL https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/mai
 
 The CLI binary will be installed to `/usr/local/bin/grapple`, and the required templates and files will be placed in `/usr/local/share/grapple-go-cli`.
 
+### PowerShell (Windows)
+
+Install the latest version:
+
+```powershell
+Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
+```
+
+Install a specific version:
+
+```powershell
+$Version = "v0.0.15"; Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
+```
+
+Or download the `install.ps1` script and run it with parameters:
+
+```powershell
+.\install.ps1 -Version "v0.0.15"
+```
+
+The CLI binary will be installed to `C:\Program Files\Grapple`, and the required templates and files will be placed in `C:\Program Files\Grapple\share`.
+
 ---
 
 ## 📦 Usage
@@ -48,18 +70,6 @@ Common commands:
 
 ---
 
-## 🧑‍💻 Development
-
-To build from source:
-
-```bash
-git clone https://github.com/grapple-solution/grapple-go-cli.git
-cd grapple-go-cli
-go build -o grapple main.go
-./grapple help
-```
-
----
 
 ## 🤝 Contributing
 
