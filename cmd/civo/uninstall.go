@@ -31,7 +31,7 @@ func init() {
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_uninstall.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_uninstall.log")
 
 	var err error
 

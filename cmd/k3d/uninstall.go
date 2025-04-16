@@ -30,7 +30,7 @@ func init() {
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_uninstall.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_uninstall.log")
 
 	var err error
 

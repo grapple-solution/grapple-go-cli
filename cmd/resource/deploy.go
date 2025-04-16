@@ -86,7 +86,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_resource_deploy.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_resource_deploy.log")
 
 	defer func() {
 		logFile.Sync() // Ensure logs are flushed before closing

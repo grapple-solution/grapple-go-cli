@@ -39,7 +39,7 @@ func init() {
 }
 
 func initializeApplication(cmd *cobra.Command, args []string) error {
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_app_init.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_app_init.log")
 	defer func() {
 		logFile.Sync()
 		logFile.Close()

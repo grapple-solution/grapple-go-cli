@@ -35,7 +35,7 @@ func init() {
 }
 
 func updateApplication(cmd *cobra.Command, args []string) error {
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_app_update.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_app_update.log")
 	defer func() {
 		logFile.Sync()
 		logFile.Close()

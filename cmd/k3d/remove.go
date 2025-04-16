@@ -56,7 +56,7 @@ func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 }
 
 func runRemove(cmd *cobra.Command, args []string) error {
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_remove.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_remove.log")
 
 	var err error
 

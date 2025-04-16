@@ -31,7 +31,7 @@ func init() {
 
 func runDev(cmd *cobra.Command, args []string) error {
 	// Setup logging
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_dev.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_dev.log")
 	defer logFile.Close()
 
 	logOnCliAndFileStart()

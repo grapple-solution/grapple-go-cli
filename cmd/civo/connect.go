@@ -34,7 +34,7 @@ func init() {
 // Function to handle the "connect" command logic
 func connectToCluster(cmd *cobra.Command, args []string) error {
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_connect.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_connect.log")
 
 	var err error
 

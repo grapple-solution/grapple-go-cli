@@ -35,7 +35,7 @@ func init() {
 // Function to handle the "create" command logic
 func createCluster(cmd *cobra.Command, args []string) error {
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_create.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_create.log")
 
 	var err error
 

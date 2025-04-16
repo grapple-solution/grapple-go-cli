@@ -39,7 +39,7 @@ func init() {
 
 func runPatchDNS(cmd *cobra.Command, args []string) error {
 	// Setup logging
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_patch.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_patch.log")
 	defer logFile.Close()
 	logOnCliAndFileStart()
 

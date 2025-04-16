@@ -32,7 +32,7 @@ func init() {
 func createCluster(cmd *cobra.Command, args []string) error {
 	utils.InstallK3d()
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_k3d_create.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_create.log")
 
 	var err error
 

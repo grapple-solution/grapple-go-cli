@@ -57,7 +57,7 @@ func init() {
 
 func runDeploy(cmd *cobra.Command, args []string) error {
 	// Setup logging
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_example_deploy.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_example_deploy.log")
 	defer logFile.Close()
 
 	logOnCliAndFileStart()

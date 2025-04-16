@@ -57,7 +57,7 @@ func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 
 func runRemove(cmd *cobra.Command, args []string) error {
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_remove.log")
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_remove.log")
 
 	var err error
 

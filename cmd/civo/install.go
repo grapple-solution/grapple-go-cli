@@ -59,7 +59,7 @@ func init() {
 // runInstallStepByStep is the main function
 func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("/tmp/grpl_civo_install.log")
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_install.log")
 
 	var err error
 

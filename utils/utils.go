@@ -157,7 +157,13 @@ func StopSpinner() {
 	}
 }
 
-func GetLogWriters(logFilePath string) (*os.File, func(), func()) {
+func GetLogWriters(logFileName string) (*os.File, func(), func()) {
+	// Get the system's temp directory
+	tempDir := os.TempDir()
+
+	// Create the full path using filepath.Join which handles OS-specific separators
+	logFilePath := filepath.Join(tempDir, logFileName)
+
 	// Open the log file (create if not exists, append mode)
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
