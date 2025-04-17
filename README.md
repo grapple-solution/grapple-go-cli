@@ -32,9 +32,9 @@ The CLI binary will be installed to `/usr/local/bin/grapple`, and the required t
 
 ### PowerShell (Windows)
 
-Install the latest version:
-
 > **Note:** The following commands must be run in an Administrator PowerShell window.
+
+Install the latest version:
 
 ```powershell
 Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
@@ -54,6 +54,12 @@ Or download the `install.ps1` script and run it with parameters:
 
 The CLI binary will be installed to `C:\Program Files\Grapple`, and the required templates and files will be placed in `C:\Program Files\Grapple\share`.
 
+
+Uninstall the CLI:
+
+```powershell
+Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/uninstall.ps1')
+```
 ---
 
 ## 📦 Usage
