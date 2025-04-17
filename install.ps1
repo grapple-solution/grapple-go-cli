@@ -117,7 +117,7 @@ try {
     $grapplePath = Join-Path $binDir "grapple.exe"
     if (Test-Path $grapplePath) {
         # You may need a new PowerShell session to use the updated PATH
-        Write-Host "Note: You may need to restart your terminal to use the 'grapple' command."
+        Write-Host "Note: You may need to re-open your PowerShell window to use the 'grapple' command."
         Write-Host "Or you can run it directly at: $grapplePath"
     }
     else {

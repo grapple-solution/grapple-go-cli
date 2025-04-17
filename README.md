@@ -34,6 +34,8 @@ The CLI binary will be installed to `/usr/local/bin/grapple`, and the required t
 
 Install the latest version:
 
+> **Note:** The following commands must be run in an Administrator PowerShell window.
+
 ```powershell
 Invoke-Expression (New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/grapple-solution/grapple-go-cli/main/install.ps1')
 ```

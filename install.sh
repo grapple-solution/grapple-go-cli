@@ -19,7 +19,7 @@ esac
 echo "Detected OS: $OS, Architecture: $ARCH"
 
 # Resolve latest version if needed
-if [ "$VERSION" = "latest" ]; then
+if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
   VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | cut -d'"' -f4)
 fi
 
