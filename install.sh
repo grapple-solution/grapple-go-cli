@@ -21,6 +21,10 @@ echo "Detected OS: $OS, Architecture: $ARCH"
 # Resolve latest version if needed
 if [ "$VERSION" = "latest" ] || [ -z "$VERSION" ]; then
   VERSION=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | cut -d'"' -f4)
+  if [ -z "$VERSION" ]; then
+    echo "Error: Unable to fetch the latest version. Please specify a version explicitly to install the CLI."
+    exit 1
+  fi
 fi
 
 TARBALL="grapple-${OS}-${ARCH}.tar.gz"
