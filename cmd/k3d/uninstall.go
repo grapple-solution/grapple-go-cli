@@ -30,7 +30,10 @@ func init() {
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_uninstall.log")
+	
+	logFileName := "grpl_k3d_uninstall.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
@@ -38,7 +41,7 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to uninstall grpl, please run cat /tmp/grpl_k3d_uninstall.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to uninstall grpl, please run cat %s for more details", logFilePath))
 		}
 	}()
 

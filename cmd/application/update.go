@@ -35,10 +35,19 @@ func init() {
 }
 
 func updateApplication(cmd *cobra.Command, args []string) error {
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_app_update.log")
+
+	logFileName := "grpl_app_update.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
+
+	var err error
+
 	defer func() {
 		logFile.Sync()
 		logFile.Close()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to update application, please run cat %s for more details", logFilePath))
+		}
 	}()
 
 	logOnCliAndFileStart()

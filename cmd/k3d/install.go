@@ -54,15 +54,18 @@ func init() {
 
 // runInstallStepByStep is the main function
 func runInstallStepByStep(cmd *cobra.Command, args []string) error {
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_install.log")
+
+	logFileName := "grpl_k3d_install.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
 	defer func() {
-		logFile.Sync() // Ensure logs are flushed before closing
+		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to install grpl, please run cat /tmp/grpl_k3d_install.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to install grpl, please run cat %s for more details", logFilePath))
 		}
 	}()
 

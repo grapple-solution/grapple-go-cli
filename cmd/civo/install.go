@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -59,15 +60,17 @@ func init() {
 // runInstallStepByStep is the main function
 func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_install.log")
+	logFileName := "grpl_civo_install.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
 	defer func() {
-		logFile.Sync() // Ensure logs are flushed before closing
+		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to install grpl, please run cat /tmp/grpl_civo_install.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to install grpl, please run cat %s for more details", logFilePath))
 		}
 	}()
 
@@ -146,7 +149,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 	utils.SuccessMessage("Loadbalancer setup completed.")
 
-	valuesFiles := []string{"/tmp/values-override.yaml"}
+	
+	valuesFileName := "values-override.yaml"
+	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
+	valuesFiles := []string{valuesFilePath}
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
@@ -321,7 +327,9 @@ func prepareValuesFile() error {
 	}
 
 	// Write to temp file
-	if err := os.WriteFile("/tmp/values-override.yaml", yamlData, 0644); err != nil {
+	valuesFileName := "values-override.yaml"
+	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
+	if err := os.WriteFile(valuesFilePath, yamlData, 0644); err != nil {
 		return fmt.Errorf("failed to write values file: %w", err)
 	}
 

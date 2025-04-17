@@ -30,15 +30,17 @@ func init() {
 func connectToCluster(cmd *cobra.Command, args []string) error {
 	utils.InstallK3d()
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_connect.log")
+	logFileName := "grpl_k3d_connect.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
 	defer func() {
-		logFile.Sync() // Ensure logs are flushed before closing
+		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to connect to cluster, please run cat /tmp/grpl_k3d_connect.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster, please run cat %s for more details", logFilePath))
 		}
 	}()
 

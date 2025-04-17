@@ -39,8 +39,20 @@ func init() {
 
 func runPatchDNS(cmd *cobra.Command, args []string) error {
 	// Setup logging
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_patch.log")
-	defer logFile.Close()
+	logFileName := "grpl_k3d_patch.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
+
+	var err error
+
+	defer func() {
+		logFile.Sync()
+		logFile.Close()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to patch DNS, please run cat %s for more details", logFilePath))
+		}
+	}()
+
 	logOnCliAndFileStart()
 
 	restConfig, _, err := utils.GetKubernetesConfig()

@@ -57,7 +57,9 @@ func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 
 func runRemove(cmd *cobra.Command, args []string) error {
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_civo_remove.log")
+	logFileName := "grpl_civo_remove.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
@@ -65,7 +67,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to remove cluster, please run cat /tmp/grpl_civo_remove.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to remove cluster, please run cat %s for more details", logFilePath))
 		}
 	}()
 

@@ -157,12 +157,16 @@ func StopSpinner() {
 	}
 }
 
-func GetLogWriters(logFileName string) (*os.File, func(), func()) {
+func GetLogFilePath(logFileName string) string {
 	// Get the system's temp directory
 	tempDir := os.TempDir()
 
 	// Create the full path using filepath.Join which handles OS-specific separators
 	logFilePath := filepath.Join(tempDir, logFileName)
+	return logFilePath
+}
+
+func GetLogWriters(logFilePath string) (*os.File, func(), func()) {
 
 	// Open the log file (create if not exists, append mode)
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
@@ -411,11 +415,11 @@ func SetupCodeVerificationServer(restConfig *rest.Config, code, completeDomain, 
 	}
 
 	// Get deployment yaml path
-	deploymentPath, err := GetResourcePath("files")
-	if err != nil {
-		return fmt.Errorf("failed to get deployment path: %w", err)
-	}
-	// deploymentPath := "files"
+	// deploymentPath, err := GetResourcePath("files")
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get deployment path: %w", err)
+	// }
+	deploymentPath := "files"
 	src := filepath.Join(deploymentPath, "code-verification-server-deployment.yaml")
 	// Read deployment yaml
 	yamlFile, err := os.ReadFile(src)

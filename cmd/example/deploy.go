@@ -57,15 +57,40 @@ func init() {
 
 func runDeploy(cmd *cobra.Command, args []string) error {
 	// Setup logging
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_example_deploy.log")
-	defer logFile.Close()
+	logFileName := "grpl_example_deploy.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
+
+	var err error
+
+	defer func() {
+		logFile.Sync()
+		logFile.Close()
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to deploy example, please run cat %s for more details", logFilePath))
+		}
+	}()
 
 	logOnCliAndFileStart()
-
-	// Check cluster accessibility
-	restConfig, err := clientcmd.BuildConfigFromFlags("", filepath.Join(os.Getenv("HOME"), ".kube", "config"))
+	// Get home directory in a cross-platform way
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to get kubeconfig: %w", err)
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	// Create .kube directory if it doesn't exist
+	kubeDir := filepath.Join(home, ".kube")
+	if err := os.MkdirAll(kubeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .kube directory: %w", err)
+	}
+
+	// Get kubeconfig path
+	configPath := filepath.Join(kubeDir, "config")
+
+	// Load kubeconfig and initialize kubectl client
+	restConfig, err := clientcmd.BuildConfigFromFlags("", configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
@@ -83,7 +108,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	utils.SuccessMessage("Grapple is ready!")
 
 	// Clone examples repo
-	repoPath := "/tmp/grpl-gras-examples"
+	repoPath := filepath.Join(os.TempDir(), "grpl-gras-examples")
 	if err := cloneExamplesRepo(repoPath); err != nil {
 		return err
 	}

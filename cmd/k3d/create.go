@@ -32,15 +32,17 @@ func init() {
 func createCluster(cmd *cobra.Command, args []string) error {
 	utils.InstallK3d()
 
-	logFile, _, logOnCliAndFileStart := utils.GetLogWriters("grpl_k3d_create.log")
+	logFileName := "grpl_k3d_create.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	var err error
 
 	defer func() {
-		logFile.Sync() // Ensure logs are flushed before closing
+		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to create cluster, please run cat /tmp/grpl_k3d_create.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to create cluster, please run cat %s for more details", logFilePath))
 		}
 	}()
 

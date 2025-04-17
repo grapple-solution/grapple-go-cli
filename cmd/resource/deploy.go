@@ -86,13 +86,15 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters("grpl_resource_deploy.log")
+	logFileName := "grpl_resource_deploy.log"
+	logFilePath := utils.GetLogFilePath(logFileName)
+	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	defer func() {
-		logFile.Sync() // Ensure logs are flushed before closing
+		logFile.Sync()
 		logFile.Close()
 		if err != nil {
-			utils.ErrorMessage("Failed to connect to cluster, please run cat /tmp/grpl_civo_connect.log for more details")
+			utils.ErrorMessage(fmt.Sprintf("Failed to deploy resource, please run cat %s for more details", logFilePath))
 		}
 	}()
 
