@@ -50,12 +50,6 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 	logOnCliAndFileStart()
 
-	// Check if already inside a cluster
-	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
-		utils.InfoMessage("Already running inside a Kubernetes cluster")
-		return nil
-	}
-
 	civoAPIKey := getCivoAPIKey()
 
 	if civoRegion == "" {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -149,7 +149,6 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 	utils.SuccessMessage("Loadbalancer setup completed.")
 
-	
 	valuesFileName := "values-override.yaml"
 	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
 	valuesFiles := []string{valuesFilePath}
