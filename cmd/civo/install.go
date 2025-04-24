@@ -54,6 +54,7 @@ func init() {
 	InstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end (default: false)")
 	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
 	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
+	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
 
 }
 
@@ -146,6 +147,13 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	logOnCliAndFileStart()
 	if err != nil {
 		return fmt.Errorf("failed to setup Traefik: %w", err)
+	}
+
+	// wait for loadbalancer to be ready
+	utils.InfoMessage("waiting for loadbalancer to be ready...")
+	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik", "traefik")
+	if err != nil {
+		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
 	}
 	utils.SuccessMessage("Loadbalancer setup completed.")
 
@@ -246,21 +254,19 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		utils.SuccessMessage("Grapple is ready!")
 	}
 
-	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik", "traefik")
-	if err != nil {
-		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
-	}
-
 	// 2) If domain is NOT resolvable, create your DNS route53 upsert job (placeholder)
-	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
+	if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) || hostedZoneID != "" {
 		utils.InfoMessage("Domain not resolvable. Creating DNS upsert job...")
 		code := utils.GenerateRandomString()
 		if err := utils.SetupCodeVerificationServer(restConfig, code, completeDomain, "civo"); err != nil {
 			utils.ErrorMessage("Failed to setup code verification server: " + err.Error())
 			return err
 		}
+		if hostedZoneID == "" {
+			hostedZoneID = "Z008820536Y8KC83QNPB2"
+		}
 		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
-		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, "Z008820536Y8KC83QNPB2", "A"); err != nil {
+		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, hostedZoneID, "A"); err != nil {
 			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
 			return err
 		}
@@ -536,6 +542,8 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
 			utils.InfoMessage(fmt.Sprintf("DNS name %s is not a FQDN", grappleDNS))
 			grappleDomain = ".grapple-demo.com"
+		} else if hostedZoneID == "" {
+			utils.InfoMessage("Make sure you have a wildcard entry for your domain e.g *.<your-domain> in your hosted zone and it points to the current cluster. If it doesn't then the dns won't work")
 		}
 	}
 
