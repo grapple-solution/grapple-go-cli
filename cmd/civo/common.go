@@ -40,6 +40,7 @@ var (
 	sslIssuer      string
 	completeDomain string
 	grappleLicense string
+	hostedZoneID   string
 )
 
 var (
