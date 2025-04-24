@@ -8,11 +8,13 @@ RUN brew install gum kubectl && \
         brew cleanup --prune=all
 
 RUN brew install devspace go-task && \
-        if [ "$TARGETARCH" != "arm64" ]; then brew install yq; fi && \
+	brew tap civo/tools && brew install civo && \
+	brew cleanup --prune=all
+
+RUN if [ "$TARGETARCH" != "arm64" ]; then brew install yq; brew cleanup --prune=all; fi && \
         if [ "$TARGETARCH" = "arm64" ]; then curl -Lko /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && chmod +x /usr/bin/yq; fi
 
-
-RUN brew tap civo/tools && brew install civo && brew cleanup --prune=all
+RUN brew install k3d && brew cleanup --prune=all 
 
 ARG GRAPPLE_CLI_VERSION
 
