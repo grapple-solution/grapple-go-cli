@@ -23,8 +23,12 @@ import (
 
 	// Kubernetes libraries
 
+	networkingv1 "k8s.io/api/networking/v1"
+	apiextclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiv1 "k8s.io/client-go/kubernetes"
+
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -55,6 +59,7 @@ func init() {
 	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
 	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
 	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
+	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik' (default: traefik)")
 
 }
 
@@ -143,15 +148,31 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	prepareValuesFile()
 
 	logOnFileStart()
-	err = setupTraefik(restConfig)
+	var ingressErr error
+	if ingressController == "traefik" {
+		ingressErr = setupTraefik(restConfig)
+	} else if ingressController == "nginx" {
+		ingressErr = setupNginx(restConfig)
+	} else {
+		utils.InfoMessage(fmt.Sprintf("invalid ingress controller: %s", ingressController))
+		utils.InfoMessage("using default ingress controller: traefik")
+		ingressController = "traefik"
+		ingressErr = setupTraefik(restConfig)
+	}
 	logOnCliAndFileStart()
-	if err != nil {
-		return fmt.Errorf("failed to setup Traefik: %w", err)
+	if ingressErr != nil {
+		return fmt.Errorf("failed to setup ingress controller: %w", ingressErr)
 	}
 
 	// wait for loadbalancer to be ready
 	utils.InfoMessage("waiting for loadbalancer to be ready...")
-	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik", "traefik")
+	ingNs := "traefik"
+	ingSvc := "traefik"
+	if ingressController == "nginx" {
+		ingNs = "ingress-nginx"
+		ingSvc = "ingress-nginx-controller"
+	}
+	clusterIP, err = utils.GetClusterExternalIP(restConfig, ingNs, ingSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
 	}
@@ -717,6 +738,237 @@ func setupTraefik(restConfig *rest.Config) error {
 		utils.InfoMessage("Traefik installed successfully")
 	} else {
 		utils.InfoMessage("Traefik already installed")
+	}
+
+	return nil
+}
+
+func setupNginx(restConfig *rest.Config) error {
+	utils.StartSpinner("Setting up NGINX Ingress Controller...")
+	defer utils.StopSpinner()
+
+	// Initialize Helm client
+	helmCfg, err := utils.GetHelmConfig(restConfig, "ingress-nginx")
+	if err != nil {
+		utils.ErrorMessage("Failed to initialize Helm configuration: " + err.Error())
+		return err
+	}
+
+	// Check if NGINX is already installed
+	listClient := action.NewList(helmCfg)
+	listClient.AllNamespaces = true
+	releases, err := listClient.Run()
+	if err != nil {
+		utils.ErrorMessage("Failed to list releases: " + err.Error())
+		return err
+	}
+
+	nginxInstalled := false
+	for _, release := range releases {
+		if release.Name == "ingress-nginx" {
+			nginxInstalled = true
+			break
+		}
+	}
+
+	if !nginxInstalled {
+		utils.InfoMessage("Installing NGINX Ingress Controller...")
+
+		// Create Helm environment settings
+		settings := cli.New()
+		settings.SetNamespace("ingress-nginx")
+
+		// Add the NGINX Ingress Controller Helm repository
+		repoEntry := repo.Entry{
+			Name: "ingress-nginx",
+			URL:  "https://kubernetes.github.io/ingress-nginx",
+		}
+
+		chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
+		if err != nil {
+			utils.ErrorMessage("Failed to create chart repository object: " + err.Error())
+			return err
+		}
+
+		// Add repo to repositories.yaml
+		repoFile := settings.RepositoryConfig
+		b, err := os.ReadFile(repoFile)
+		if err != nil && !os.IsNotExist(err) {
+			utils.ErrorMessage("Failed to read repository file: " + err.Error())
+			return err
+		}
+
+		var f repo.File
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			utils.ErrorMessage("Failed to unmarshal repository file: " + err.Error())
+			return err
+		}
+
+		// Add new repo or update existing
+		f.Add(&repoEntry)
+
+		if err := f.WriteFile(repoFile, 0644); err != nil {
+			utils.ErrorMessage("Failed to write repository file: " + err.Error())
+			return err
+		}
+
+		_, err = chartRepo.DownloadIndexFile()
+		if err != nil {
+			utils.ErrorMessage("Failed to download repository index: " + err.Error())
+			return err
+		}
+
+		// Create install client
+		installClient := action.NewInstall(helmCfg)
+		installClient.Namespace = "ingress-nginx"
+		installClient.CreateNamespace = true
+		installClient.ReleaseName = "ingress-nginx"
+		installClient.Version = "" // Consider setting a specific version that's compatible with K8s 1.28
+
+		// Locate and load the chart
+		chartPath, err := installClient.ChartPathOptions.LocateChart("ingress-nginx/ingress-nginx", settings)
+		if err != nil {
+			utils.ErrorMessage("Failed to locate NGINX Ingress chart: " + err.Error())
+			return err
+		}
+
+		// Load chart
+		chart, err := loader.Load(chartPath)
+		if err != nil {
+			utils.ErrorMessage("Failed to load NGINX Ingress chart: " + err.Error())
+			return err
+		}
+
+		// Set values - updated to ensure default IngressClass is properly set
+		values := map[string]interface{}{
+			"controller": map[string]interface{}{
+				"service": map[string]interface{}{
+					"type": "LoadBalancer",
+				},
+				"ingressClassResource": map[string]interface{}{
+					"name":            "nginx",
+					"enabled":         true,
+					"default":         true,
+					"controllerValue": "k8s.io/ingress-nginx",
+				},
+				"watchIngressWithoutClass": true,
+			},
+		}
+
+		// Install chart
+		_, err = installClient.Run(chart, values)
+		if err != nil {
+			utils.ErrorMessage("Failed to install NGINX Ingress Controller: " + err.Error())
+			return err
+		}
+
+		utils.InfoMessage("NGINX Ingress Controller installed successfully")
+	} else {
+		utils.InfoMessage("NGINX Ingress Controller already installed, updating to make it default...")
+
+		// Create upgrade client to update the existing installation
+		upgradeClient := action.NewUpgrade(helmCfg)
+		upgradeClient.Namespace = "ingress-nginx"
+
+		// Set values for the upgrade
+		values := map[string]interface{}{
+			"controller": map[string]interface{}{
+				"service": map[string]interface{}{
+					"type": "LoadBalancer",
+				},
+				"ingressClassResource": map[string]interface{}{
+					"name":            "nginx",
+					"enabled":         true,
+					"default":         true,
+					"controllerValue": "k8s.io/ingress-nginx",
+				},
+				"watchIngressWithoutClass": true,
+			},
+		}
+
+		// Locate chart
+		settings := cli.New()
+		chartPath, err := upgradeClient.ChartPathOptions.LocateChart("ingress-nginx/ingress-nginx", settings)
+		if err != nil {
+			utils.ErrorMessage("Failed to locate NGINX Ingress chart for upgrade: " + err.Error())
+			return err
+		}
+
+		// Load chart
+		chart, err := loader.Load(chartPath)
+		if err != nil {
+			utils.ErrorMessage("Failed to load NGINX Ingress chart for upgrade: " + err.Error())
+			return err
+		}
+
+		// Upgrade release
+		_, err = upgradeClient.Run("ingress-nginx", chart, values)
+		if err != nil {
+			utils.ErrorMessage("Failed to upgrade NGINX Ingress Controller: " + err.Error())
+			return err
+		}
+
+		utils.InfoMessage("NGINX Ingress Controller upgraded successfully")
+	}
+
+	// Ensure the IngressClass is created with the default annotation
+	err = createDefaultIngressClass(restConfig)
+	if err != nil {
+		utils.ErrorMessage("Failed to create default IngressClass: " + err.Error())
+		return err
+	}
+
+	return nil
+}
+
+// createDefaultIngressClass creates or updates the nginx IngressClass to make it default
+func createDefaultIngressClass(restConfig *rest.Config) error {
+	// Create clientset
+	clientset, err := apiv1.NewForConfig(restConfig)
+	if err != nil {
+		return err
+	}
+
+	// Create API extensions client for IngressClass
+	_, err = apiextclientset.NewForConfig(restConfig)
+	if err != nil {
+		return err
+	}
+
+	// Define IngressClass
+	ingressClass := &networkingv1.IngressClass{
+		ObjectMeta: v1.ObjectMeta{
+			Name: "nginx",
+			Annotations: map[string]string{
+				"ingressclass.kubernetes.io/is-default-class": "true",
+			},
+		},
+		Spec: networkingv1.IngressClassSpec{
+			Controller: "k8s.io/ingress-nginx",
+		},
+	}
+
+	// Try to get existing IngressClass
+	existingIC, err := clientset.NetworkingV1().IngressClasses().Get(context.TODO(), "nginx", v1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// Create new IngressClass
+			_, err = clientset.NetworkingV1().IngressClasses().Create(context.TODO(), ingressClass, v1.CreateOptions{})
+			if err != nil {
+				return err
+			}
+			utils.InfoMessage("Default IngressClass 'nginx' created")
+		} else {
+			return err
+		}
+	} else {
+		// Update existing IngressClass
+		existingIC.ObjectMeta.Annotations["ingressclass.kubernetes.io/is-default-class"] = "true"
+		_, err = clientset.NetworkingV1().IngressClasses().Update(context.TODO(), existingIC, v1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
+		utils.InfoMessage("Existing IngressClass 'nginx' updated to be default")
 	}
 
 	return nil
