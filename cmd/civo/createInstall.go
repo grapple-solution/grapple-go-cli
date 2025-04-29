@@ -19,24 +19,24 @@ This command combines the functionality of 'create' and 'install' commands.`,
 
 func init() {
 	// Create command flags
-	CreateInstallCmd.Flags().StringVarP(&targetPlatform, "target-platform", "p", "civo", "Target platform (default: civo)")
 	CreateInstallCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster")
 	CreateInstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	CreateInstallCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
-	CreateInstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
+	CreateInstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
 	CreateInstallCmd.Flags().StringVar(&applications, "applications", "traefik2-nodeport,civo-cluster-autoscaler,metrics-server", "Applications to install")
-	CreateInstallCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes (default: 3)")
-	CreateInstallCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size (default: g4s.kube.medium)")
+	CreateInstallCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes")
+	CreateInstallCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size")
 
 	// Install command flags
-	CreateInstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install (default: latest)")
-	CreateInstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple (default: {cluster-name}.grapple-solutions.com)")
-	CreateInstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name (default: grapple-solutions)")
-	CreateInstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background (default: false)")
-	CreateInstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end (default: false)")
-	CreateInstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
-	CreateInstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
+	CreateInstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install")
+	CreateInstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple")
+	CreateInstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name")
+	CreateInstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background")
+	CreateInstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end")
+	CreateInstallCmd.Flags().BoolVar(&sslEnable, "ssl", false, "Enable SSL usage")
+	CreateInstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
 	CreateInstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
+	CreateInstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik'")
 }
 
 func runCreateInstall(cmd *cobra.Command, args []string) error {
