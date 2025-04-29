@@ -255,7 +255,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if sslEnable {
 		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.) - placeholder logic.")
 		logOnFileStart()
-		err = utils.CreateClusterIssuer(kubeClient, sslEnable)
+		err = utils.CreateClusterIssuer(restConfig, sslEnable)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to create clusterissuer: %w", err)
