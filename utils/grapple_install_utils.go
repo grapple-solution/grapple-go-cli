@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -690,24 +691,27 @@ func waitForCondition(client dynamic.Interface, xrdName string, condition string
 	return fmt.Errorf("timeout waiting for condition %s on XRD %s", condition, xrdName)
 }
 
-func CreateClusterIssuer(kubeClient apiv1.Interface, sslEnable bool) error {
+func CreateClusterIssuer(restConfig *rest.Config, sslEnable bool) error {
 	// Apply clusterissuer.yaml if SSL is enabled
 	if sslEnable {
 		InfoMessage("Applying SSL cluster issuer configuration...")
 
-		// Read and apply the cluster issuer manifest
-		issuerBytes, err := os.ReadFile("files/clusterissuer.yaml")
+		// Get clusterIssuer yaml path
+		clusterIssuerPath, err := GetResourcePath("files")
+		if err != nil {
+			return fmt.Errorf("failed to get cluster issuer path: %w", err)
+		}
+		// clusterIssuerPath := "files"
+		src := filepath.Join(clusterIssuerPath, "clusterissuer.yaml")
+
+		// Read the cluster issuer manifest
+		issuerBytes, err := os.ReadFile(src)
 		if err != nil {
 			return fmt.Errorf("failed to read cluster issuer manifest: %w", err)
 		}
 
-		// Apply using dynamic client
-		config, err := kubeClient.Discovery().RESTClient().Get().RequestURI("/api/v1").DoRaw(context.TODO())
-		if err != nil {
-			return fmt.Errorf("failed to get REST config: %w", err)
-		}
-
-		dynamicClient, err := dynamic.NewForConfig(&rest.Config{Host: string(config)})
+		// Create dynamic client with the provided restConfig
+		dynamicClient, err := dynamic.NewForConfig(restConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create dynamic client: %w", err)
 		}
@@ -718,12 +722,19 @@ func CreateClusterIssuer(kubeClient apiv1.Interface, sslEnable bool) error {
 			return fmt.Errorf("failed to decode cluster issuer manifest: %w", err)
 		}
 
+		// Attempt to create the ClusterIssuer resource
 		_, err = dynamicClient.Resource(schema.GroupVersionResource{
 			Group:    "cert-manager.io",
 			Version:  "v1",
 			Resource: "clusterissuers",
 		}).Create(context.TODO(), &obj, v1.CreateOptions{})
+
 		if err != nil {
+			// Check if it's an "already exists" error
+			if errors.IsAlreadyExists(err) {
+				InfoMessage("ClusterIssuer 'letsencrypt-grapple-demo' already exists, skipping creation")
+				return nil
+			}
 			return fmt.Errorf("failed to apply cluster issuer: %w", err)
 		}
 
