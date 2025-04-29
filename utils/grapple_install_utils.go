@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -691,7 +690,7 @@ func waitForCondition(client dynamic.Interface, xrdName string, condition string
 	return fmt.Errorf("timeout waiting for condition %s on XRD %s", condition, xrdName)
 }
 
-func CreateClusterIssuer(restConfig *rest.Config, sslEnable bool) error {
+func CreateClusterIssuer(restConfig *rest.Config, sslEnable bool, ingressController string) error {
 	// Apply clusterissuer.yaml if SSL is enabled
 	if sslEnable {
 		InfoMessage("Applying SSL cluster issuer configuration...")
@@ -705,10 +704,14 @@ func CreateClusterIssuer(restConfig *rest.Config, sslEnable bool) error {
 		src := filepath.Join(clusterIssuerPath, "clusterissuer.yaml")
 
 		// Read the cluster issuer manifest
-		issuerBytes, err := os.ReadFile(src)
+		yamlFile, err := os.ReadFile(src)
 		if err != nil {
 			return fmt.Errorf("failed to read cluster issuer manifest: %w", err)
 		}
+
+		// Replace variables in yaml
+		yamlStr := string(yamlFile)
+		yamlStr = strings.ReplaceAll(yamlStr, "$INGRESS_CLASS", ingressController)
 
 		// Create dynamic client with the provided restConfig
 		dynamicClient, err := dynamic.NewForConfig(restConfig)
@@ -716,7 +719,7 @@ func CreateClusterIssuer(restConfig *rest.Config, sslEnable bool) error {
 			return fmt.Errorf("failed to create dynamic client: %w", err)
 		}
 
-		decoder := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(issuerBytes), 4096)
+		decoder := k8syaml.NewYAMLOrJSONDecoder(strings.NewReader(yamlStr), 4096)
 		var obj unstructured.Unstructured
 		if err := decoder.Decode(&obj); err != nil {
 			return fmt.Errorf("failed to decode cluster issuer manifest: %w", err)

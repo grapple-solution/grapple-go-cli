@@ -45,8 +45,8 @@ sequentially, waiting for required resources in between, mirroring the step-by-s
 
 // init sets up flags for install
 func init() {
-	InstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install (default: latest)")
-	InstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
+	InstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install")
+	InstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
 	InstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	InstallCmd.Flags().StringVar(&clusterName, "cluster-name", "", "Civo cluster name")
 	InstallCmd.Flags().StringVar(&civoClusterID, "civo-cluster-id", "", "Civo cluster ID")
@@ -54,12 +54,12 @@ func init() {
 	InstallCmd.Flags().StringVar(&clusterIP, "cluster-ip", "", "Cluster IP")
 	InstallCmd.Flags().StringVar(&grappleDNS, "grapple-dns", "", "Domain for Grapple (default: {cluster-name}.grapple-solutions.com)")
 	InstallCmd.Flags().StringVar(&organization, "organization", "", "Organization name (default: grapple-solutions)")
-	InstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background (default: false)")
-	InstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end (default: false)")
-	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
-	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
+	InstallCmd.Flags().BoolVar(&installKubeblocks, "install-kubeblocks", false, "Install Kubeblocks in background")
+	InstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for Grapple to be fully ready at the end")
+	InstallCmd.Flags().BoolVar(&sslEnable, "ssl", false, "Enable SSL usage")
+	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
 	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
-	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik' (default: traefik)")
+	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik'")
 
 }
 
@@ -253,9 +253,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 
 	// Step 7) SSL enabling (placeholder)
 	if sslEnable {
-		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.) - placeholder logic.")
+		utils.InfoMessage("Enabling SSL (applying clusterissuer, etc.)")
 		logOnFileStart()
-		err = utils.CreateClusterIssuer(restConfig, sslEnable)
+		err = utils.CreateClusterIssuer(restConfig, sslEnable, ingressController)
 		logOnCliAndFileStart()
 		if err != nil {
 			return fmt.Errorf("failed to create clusterissuer: %w", err)
