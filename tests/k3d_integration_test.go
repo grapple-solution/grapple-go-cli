@@ -27,7 +27,9 @@ func TestK3dIntegration(t *testing.T) {
 	t.Run("Check if cluster exists", func(t *testing.T) {
 		utils.InfoMessage("Starting k3d integration test suite")
 		log.Println("Starting test: Check if cluster exists")
-		os.Remove("/tmp/failed_flag")
+		if err := os.Remove("/tmp/failed_flag"); err != nil && !os.IsNotExist(err) {
+			log.Printf("Failed to remove failed_flag: %v", err)
+		}
 
 		// Check if cluster exists
 		utils.InfoMessage("Checking if cluster exists")
@@ -195,7 +197,11 @@ func TestK3dIntegration(t *testing.T) {
 			setFailed(t)
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != 200 {
 			setFailed(t)

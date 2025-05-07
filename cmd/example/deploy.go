@@ -64,8 +64,12 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	var err error
 
 	defer func() {
-		logFile.Sync()
-		logFile.Close()
+		if syncErr := logFile.Sync(); syncErr != nil {
+			fmt.Fprintf(os.Stderr, "Failed to sync log file: %v\n", syncErr)
+		}
+		if closeErr := logFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Failed to close log file: %v\n", closeErr)
+		}
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to deploy example, please run cat %s for more details", logFilePath))
 		}
@@ -338,12 +342,16 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 	if wait {
 		utils.InfoMessage("Waiting for grapi deployment to be ready...")
 		deploymentName := fmt.Sprintf("%s-%s-grapi", DeploymentNamespace, GrasName)
-		utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
+			return fmt.Errorf("failed waiting for grapi deployment: %w", err)
+		}
 		utils.SuccessMessage("grapi deployment is ready")
 
 		utils.InfoMessage("Waiting for gruim deployment to be ready...")
 		deploymentName = fmt.Sprintf("%s-%s-gruim", DeploymentNamespace, GrasName)
-		utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName)
+		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
+			return fmt.Errorf("failed waiting for gruim deployment: %w", err)
+		}
 		utils.SuccessMessage("gruim deployment is ready")
 	}
 

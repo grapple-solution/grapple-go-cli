@@ -200,7 +200,9 @@ func Contains(slice []string, val string) bool {
 func GetHelmConfig(restConfig *rest.Config, helmNamespace string) (*action.Configuration, error) {
 
 	// Enable OCI support for Helm
-	os.Setenv("HELM_EXPERIMENTAL_OCI", "1")
+	if err := os.Setenv("HELM_EXPERIMENTAL_OCI", "1"); err != nil {
+		return nil, fmt.Errorf("failed to set HELM_EXPERIMENTAL_OCI environment variable: %w", err)
+	}
 
 	// Initialize the OCI registry client
 	registryClient, err := registry.NewClient()
