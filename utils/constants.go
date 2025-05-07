@@ -54,6 +54,7 @@ const (
 	SecKeyClusterName         = "CLUSTER_NAME"
 	SecKeyGrapleDNS           = "GRAPPLE_DNS"
 	SecKeyGrapleVersion       = "GRAPPLE_VERSION"
+	SecKeyGrapleCliVersion    = "GRAPPLE_CLI_VERSION"
 	SecKeyGrapleLicense       = "GRAPPLE_LICENSE"
 	SecKeyProviderClusterType = "PROVIDER_CLUSTER_TYPE"
 	SecKeyCivoClusterID       = "CIVO_CLUSTER_ID"

@@ -341,6 +341,7 @@ func prepareValuesFile() error {
 			utils.SecKeyClusterName:         clusterName,
 			utils.SecKeyGrapleDNS:           completeDomain,
 			utils.SecKeyGrapleVersion:       grappleVersion,
+			utils.SecKeyGrapleCliVersion:    utils.GetGrappleCliVersion(),
 			utils.SecKeyGrapleLicense:       grappleLicense,
 			utils.SecKeyProviderClusterType: utils.ProviderClusterTypeCivo,
 

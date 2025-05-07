@@ -880,3 +880,17 @@ func GetClusterExternalIP(restConfig *rest.Config, namespace, serviceName string
 	return "", fmt.Errorf("timeout: external IP not assigned for service '%s' in namespace '%s' within %v",
 		serviceName, namespace, maxWait)
 }
+
+// getVersion reads the version from the VERSION file
+func GetGrappleCliVersion() string {
+
+	versionPath, err := GetResourcePath("VERSION")
+	if err == nil {
+		content, err := os.ReadFile(versionPath)
+		if err == nil {
+			return strings.TrimSpace(string(content))
+		}
+	}
+
+	return versionPath
+}

@@ -5,8 +5,6 @@ package version
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
@@ -19,23 +17,9 @@ var VersionCmd = &cobra.Command{
 	Short:   "Display the version of Grapple CLI",
 	Long:    `Display the current version of the Grapple CLI tool.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		version := getVersion()
+		version := utils.GetGrappleCliVersion()
 		fmt.Printf("Grapple CLI version: %s\n", version)
 	},
-}
-
-// getVersion reads the version from the VERSION file
-func getVersion() string {
-
-	versionPath, err := utils.GetResourcePath("VERSION")
-	if err == nil {
-		content, err := os.ReadFile(versionPath)
-		if err == nil {
-			return strings.TrimSpace(string(content))
-		}
-	}
-
-	return versionPath
 }
 
 func init() {
