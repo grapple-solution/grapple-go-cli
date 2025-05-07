@@ -92,9 +92,8 @@ func helmInstallOrUpgradeGrpl(kubeClient apiv1.Interface, releaseName, namespace
 		return fmt.Errorf("failed to create registry client: %v", err)
 	}
 
-	if err := LogoutHelmRegistry(regClient); err != nil {
-		return fmt.Errorf("failed to logout from helm registry: %v", err)
-	}
+	_ = LogoutHelmRegistry(regClient)
+
 	actionConfig.RegistryClient = regClient
 
 	// Check if release exists
