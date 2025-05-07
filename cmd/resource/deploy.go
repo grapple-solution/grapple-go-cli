@@ -91,8 +91,12 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	logFile, logOnFileStart, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
 
 	defer func() {
-		logFile.Sync()
-		logFile.Close()
+		if err := logFile.Sync(); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to sync log file: %v", err))
+		}
+		if err := logFile.Close(); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to close log file: %v", err))
+		}
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to deploy resource, please run cat %s for more details", logFilePath))
 		}
@@ -922,7 +926,9 @@ func takeDBFilePath() error {
 		}
 	}
 	DBFilePath = path
-	os.Setenv("db_file", DBFilePath)
+	if err := os.Setenv("db_file", DBFilePath); err != nil {
+		return err
+	}
 
 	return nil
 }

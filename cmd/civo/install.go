@@ -145,7 +145,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	prepareValuesFile()
+	if err := prepareValuesFile(); err != nil {
+		return fmt.Errorf("failed to prepare values file: %w", err)
+	}
 
 	logOnFileStart()
 	var ingressErr error
@@ -284,9 +286,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if hostedZoneID == "" {
-			hostedZoneID = "Z008820536Y8KC83QNPB2"
+			hostedZoneID = "Z03015782ZG7K1CRJLN42"
 		}
-		apiURL := "https://0anfj8jy8j.execute-api.eu-central-1.amazonaws.com/prod/grpl-route53-dns-manager-v2"
+		apiURL := "https://4t2skptq3g.execute-api.eu-central-1.amazonaws.com/dev/grpl-route53-dns-manager-v2"
 		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, hostedZoneID, "A"); err != nil {
 			utils.ErrorMessage("Failed to upsert DNS record: " + err.Error())
 			return err
@@ -313,7 +315,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		utils.SuccessMessage("Grapple images preloaded.")
 	}
 
-	utils.RemoveCodeVerificationServer(restConfig)
+	if err := utils.RemoveCodeVerificationServer(restConfig); err != nil {
+		utils.ErrorMessage("Failed to remove code verification server: " + err.Error())
+		// Continue execution as this is not a critical error
+	}
 
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
@@ -336,6 +341,7 @@ func prepareValuesFile() error {
 			utils.SecKeyClusterName:         clusterName,
 			utils.SecKeyGrapleDNS:           completeDomain,
 			utils.SecKeyGrapleVersion:       grappleVersion,
+			utils.SecKeyGrapleCliVersion:    utils.GetGrappleCliVersion(),
 			utils.SecKeyGrapleLicense:       grappleLicense,
 			utils.SecKeyProviderClusterType: utils.ProviderClusterTypeCivo,
 

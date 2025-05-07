@@ -30,7 +30,9 @@ func init() {
 
 // Function to handle the "create" command logic
 func createCluster(cmd *cobra.Command, args []string) error {
-	utils.InstallK3d()
+	if err := utils.InstallK3d(); err != nil {
+		return fmt.Errorf("failed to install k3d: %w", err)
+	}
 
 	logFileName := "grpl_k3d_create.log"
 	logFilePath := utils.GetLogFilePath(logFileName)

@@ -175,7 +175,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	prepareValuesFile()
+	if err := prepareValuesFile(); err != nil {
+		return fmt.Errorf("failed to prepare values file: %w", err)
+	}
 
 	deploymentPath, err := utils.GetResourcePath("template-files")
 	if err != nil {
