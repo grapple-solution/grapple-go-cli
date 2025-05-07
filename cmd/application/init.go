@@ -43,12 +43,16 @@ func initializeApplication(cmd *cobra.Command, args []string) error {
 	logFileName := "grpl_app_init.log"
 	logFilePath := utils.GetLogFilePath(logFileName)
 	logFile, _, logOnCliAndFileStart := utils.GetLogWriters(logFilePath)
-	
+
 	var err error
 
 	defer func() {
-		logFile.Sync()
-		logFile.Close()
+		if syncErr := logFile.Sync(); syncErr != nil {
+			fmt.Fprintf(os.Stderr, "Failed to sync log file: %v\n", syncErr)
+		}
+		if closeErr := logFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Failed to close log file: %v\n", closeErr)
+		}
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to initialize application, please run cat %s for more details", logFilePath))
 		}
@@ -379,7 +383,9 @@ func getGitHubToken() error {
 			githubToken = result
 		}
 	}
-	os.Setenv("GITHUB_TOKEN", githubToken)
+	if err := os.Setenv("GITHUB_TOKEN", githubToken); err != nil {
+		return fmt.Errorf("failed to set GITHUB_TOKEN environment variable: %w", err)
+	}
 
 	return nil
 }

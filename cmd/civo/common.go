@@ -88,7 +88,9 @@ func getCivoAPIKey() string {
 	}
 
 	// Set the API key as environment variable
-	os.Setenv("CIVO_API_TOKEN", key)
+	if err := os.Setenv("CIVO_API_TOKEN", key); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("Failed to set CIVO_API_TOKEN environment variable: %v", err))
+	}
 
 	return key
 }
@@ -165,7 +167,11 @@ func getCivoRegion(key string) []string {
 		utils.ErrorMessage(fmt.Sprintf("Failed to get regions: %v", err))
 		return []string{} // Return default regions on error
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Failed to close response body: %v", err))
+		}
+	}()
 
 	// Parse response
 	var regions []struct {

@@ -200,7 +200,9 @@ func Contains(slice []string, val string) bool {
 func GetHelmConfig(restConfig *rest.Config, helmNamespace string) (*action.Configuration, error) {
 
 	// Enable OCI support for Helm
-	os.Setenv("HELM_EXPERIMENTAL_OCI", "1")
+	if err := os.Setenv("HELM_EXPERIMENTAL_OCI", "1"); err != nil {
+		return nil, fmt.Errorf("failed to set HELM_EXPERIMENTAL_OCI environment variable: %w", err)
+	}
 
 	// Initialize the OCI registry client
 	registryClient, err := registry.NewClient()
@@ -877,4 +879,18 @@ func GetClusterExternalIP(restConfig *rest.Config, namespace, serviceName string
 
 	return "", fmt.Errorf("timeout: external IP not assigned for service '%s' in namespace '%s' within %v",
 		serviceName, namespace, maxWait)
+}
+
+// getVersion reads the version from the VERSION file
+func GetGrappleCliVersion() string {
+
+	versionPath, err := GetResourcePath("VERSION")
+	if err == nil {
+		content, err := os.ReadFile(versionPath)
+		if err == nil {
+			return strings.TrimSpace(string(content))
+		}
+	}
+
+	return versionPath
 }

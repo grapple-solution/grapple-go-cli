@@ -32,7 +32,9 @@ func TestCivoIntegration(t *testing.T) {
 	t.Run("Check if cluster exists", func(t *testing.T) {
 		utils.InfoMessage("Starting civo integration test suite")
 		log.Println("Starting test: Check if cluster exists")
-		os.Remove("/tmp/failed_flag")
+		if err := os.Remove("/tmp/failed_flag"); err != nil && !os.IsNotExist(err) {
+			log.Printf("Failed to remove failed_flag: %v", err)
+		}
 
 		// Configure Civo CLI
 		err := runCmdWithoutLogs("civo", "apikey", "add", "grapple", os.Getenv("CIVO_API_TOKEN"))
@@ -218,7 +220,11 @@ func TestCivoIntegration(t *testing.T) {
 			setFailed(t)
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Failed to close response body: %v", err)
+			}
+		}()
 
 		if resp.StatusCode != 200 {
 			setFailed(t)

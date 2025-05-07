@@ -59,7 +59,9 @@ func helmInstallOrUpgradeGrpl(kubeClient apiv1.Interface, releaseName, namespace
 	defer StopSpinner()
 
 	// check and create namespace if it doesn't exist
-	CheckAndCreateNamespace(kubeClient, namespace)
+	if err := CheckAndCreateNamespace(kubeClient, namespace); err != nil {
+		return fmt.Errorf("failed to check or create namespace: %v", err)
+	}
 
 	// Mirrors the Bash variables
 	awsRegistry := "p7h7z5g3"
@@ -86,10 +88,12 @@ func helmInstallOrUpgradeGrpl(kubeClient apiv1.Interface, releaseName, namespace
 
 	// Create a registry client (for pulling OCI charts)
 	regClient, err := registry.NewClient()
-	LogoutHelmRegistry(regClient)
 	if err != nil {
 		return fmt.Errorf("failed to create registry client: %v", err)
 	}
+
+	_ = LogoutHelmRegistry(regClient)
+
 	actionConfig.RegistryClient = regClient
 
 	// Check if release exists
@@ -898,7 +902,11 @@ func InstallKubeBlocksOnCluster(
 	if err != nil {
 		return fmt.Errorf("failed to download CRDs yaml: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			InfoMessage(fmt.Sprintf("Warning: failed to close response body: %v", closeErr))
+		}
+	}()
 
 	// Use k8syaml decoder to properly handle Kubernetes YAML
 	decoder := k8syaml.NewYAMLOrJSONDecoder(resp.Body, 4096)

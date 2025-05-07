@@ -10,6 +10,7 @@ import (
 	"github.com/grapple-solution/grapple_cli/cmd/example" // Import the example package
 	"github.com/grapple-solution/grapple_cli/cmd/k3d"
 	"github.com/grapple-solution/grapple_cli/cmd/resource"
+	"github.com/grapple-solution/grapple_cli/cmd/version"
 	"github.com/spf13/cobra"
 )
 
@@ -37,4 +38,5 @@ func init() {
 	rootCmd.AddCommand(resource.ResourceCmd)
 	rootCmd.AddCommand(application.ApplicationCmd)
 	rootCmd.AddCommand(dev.DevCmd)
+	rootCmd.AddCommand(version.VersionCmd)
 }

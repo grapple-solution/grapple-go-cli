@@ -28,7 +28,9 @@ func init() {
 
 // Function to handle the "connect" command logic
 func connectToCluster(cmd *cobra.Command, args []string) error {
-	utils.InstallK3d()
+	if err := utils.InstallK3d(); err != nil {
+		return fmt.Errorf("failed to install k3d: %w", err)
+	}
 
 	logFileName := "grpl_k3d_connect.log"
 	logFilePath := utils.GetLogFilePath(logFileName)
@@ -37,8 +39,12 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 	var err error
 
 	defer func() {
-		logFile.Sync()
-		logFile.Close()
+		if syncErr := logFile.Sync(); syncErr != nil && err == nil {
+			err = fmt.Errorf("failed to sync log file: %w", syncErr)
+		}
+		if closeErr := logFile.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to close log file: %w", closeErr)
+		}
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Failed to connect to cluster, please run cat %s for more details", logFilePath))
 		}
