@@ -286,7 +286,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if hostedZoneID == "" {
-			hostedZoneID = "Z0454103342YLLKJIY5JV"
+			hostedZoneID = "Z03015782ZG7K1CRJLN42"
 		}
 		apiURL := "https://4t2skptq3g.execute-api.eu-central-1.amazonaws.com/dev/grpl-route53-dns-manager-v2"
 		if err := utils.UpsertDNSRecord(restConfig, apiURL, completeDomain, code, clusterIP, hostedZoneID, "A"); err != nil {
@@ -473,7 +473,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 		// Get Grapple DNS if not provided
 		if grappleDNS == "" {
 			grappleDNS = clusterName
-			utils.InfoMessage(fmt.Sprintf("Using cluster name as Grapple DNS: %s.grplaws.grapple-demo.com", grappleDNS))
+			utils.InfoMessage(fmt.Sprintf("Using cluster name as Grapple DNS: %s.grapple-demo.com", grappleDNS))
 		}
 
 		// Get CIVO email address if not provided
@@ -568,7 +568,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 	if grappleDNS != "" {
 		if !utils.IsResolvable(utils.ExtractDomain(grappleDNS)) {
 			utils.InfoMessage(fmt.Sprintf("DNS name %s is not a FQDN", grappleDNS))
-			grappleDomain = ".grplaws.grapple-demo.com"
+			grappleDomain = ".grapple-demo.com"
 		} else if hostedZoneID == "" {
 			utils.InfoMessage("Make sure you have a wildcard entry for your domain e.g *.<your-domain> in your hosted zone and it points to the current cluster. If it doesn't then the dns won't work")
 		}
@@ -577,7 +577,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 	// Set default grappleDNS if empty
 	if grappleDNS == "" {
 		grappleDNS = clusterName
-		grappleDomain = ".grplaws.grapple-demo.com"
+		grappleDomain = ".grapple-demo.com"
 	}
 
 	// Set default organization if empty
