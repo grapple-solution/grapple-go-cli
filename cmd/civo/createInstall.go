@@ -36,7 +36,7 @@ func init() {
 	CreateInstallCmd.Flags().BoolVar(&sslEnable, "ssl", false, "Enable SSL usage")
 	CreateInstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
 	CreateInstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
-	CreateInstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik'")
+	CreateInstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "First checks if an Ingress Controller is already installed, if not, then it can be 'nginx' or 'traefik'")
 }
 
 func runCreateInstall(cmd *cobra.Command, args []string) error {
