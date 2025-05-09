@@ -60,7 +60,7 @@ func runPatchDNS(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get kubernetes config: %w", err)
 	}
 
-	clusterIP, err = utils.GetClusterExternalIP(restConfig, "kube-system", "traefik")
+	clusterIP, err = utils.GetClusterExternalIP(restConfig, "traefik")
 	if err != nil {
 		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
 	}
