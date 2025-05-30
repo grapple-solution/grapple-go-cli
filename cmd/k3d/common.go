@@ -15,14 +15,15 @@ var (
 	email             string
 	installKubeblocks bool
 	// waitForReady      bool
-	sslEnable        bool
-	sslIssuer        string
-	grappleLicense   string
-	completeDomain   string
-	clusterName      string
-	nodes            int
-	waitForReady     bool
-	skipConfirmation bool
+	sslEnable             bool
+	sslIssuer             string
+	grappleLicense        string
+	completeDomain        string
+	clusterName           string
+	nodes                 int
+	waitForReady          bool
+	skipConfirmation      bool
+	additionalValuesFiles []string
 )
 
 // fileExists checks if a file exists and is not a directory
