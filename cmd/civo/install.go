@@ -60,6 +60,7 @@ func init() {
 	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
 	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
 	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "First checks if an Ingress Controller is already installed, if not, then it can be 'nginx' or 'traefik'")
+	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
 
 }
 
@@ -165,6 +166,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	valuesFileName := "values-override.yaml"
 	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
 	valuesFiles := []string{valuesFilePath}
+	if len(additionalValuesFiles) > 0 {
+		valuesFiles = append(valuesFiles, additionalValuesFiles...)
+	}
+
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()

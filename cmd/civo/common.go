@@ -30,18 +30,19 @@ var (
 	skipConfirmation  bool
 
 	// Installation specific flags
-	grappleVersion    string
-	civoClusterID     string
-	clusterIP         string
-	grappleDNS        string
-	organization      string
-	waitForReady      bool
-	sslEnable         bool
-	sslIssuer         string
-	completeDomain    string
-	grappleLicense    string
-	hostedZoneID      string
-	ingressController string
+	grappleVersion        string
+	civoClusterID         string
+	clusterIP             string
+	grappleDNS            string
+	organization          string
+	waitForReady          bool
+	sslEnable             bool
+	sslIssuer             string
+	completeDomain        string
+	grappleLicense        string
+	hostedZoneID          string
+	ingressController     string
+	additionalValuesFiles []string
 )
 
 var (

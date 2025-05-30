@@ -50,6 +50,8 @@ func init() {
 	InstallCmd.Flags().BoolVar(&sslEnable, "ssl-enable", false, "Enable SSL usage (default: false)")
 	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
 	InstallCmd.Flags().StringVar(&grappleLicense, "grapple-license", "", "Grapple license key")
+	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
+
 }
 
 // runInstallStepByStep is the main function
@@ -187,6 +189,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	valuesFileForK3d := filepath.Join(deploymentPath, "values-k3d.yaml")
 
 	valuesFile := []string{"/tmp/values-override.yaml", valuesFileForK3d}
+	if len(additionalValuesFiles) > 0 {
+		valuesFile = append(valuesFile, additionalValuesFiles...)
+	}
+
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
