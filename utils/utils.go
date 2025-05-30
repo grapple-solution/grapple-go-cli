@@ -831,54 +831,59 @@ func GetClusterProviderType(clientset *kubernetes.Clientset) (string, error) {
 	return string(secret.Data[SecKeyProviderClusterType]), nil
 }
 
-// getClusterExternalIP waits for and retrieves the external IP of a LoadBalancer service
-func GetClusterExternalIP(restConfig *rest.Config, namespace, serviceName string) (string, error) {
-	// Maximum wait time and interval
+// GetClusterExternalIP finds the external IP of a LoadBalancer service whose name or namespace contains the ingressController string.
+func GetClusterExternalIP(restConfig *rest.Config, ingressController string) (string, error) {
 	maxWait := 300 * time.Second
 	interval := 5 * time.Second
 	deadline := time.Now().Add(maxWait)
 
-	InfoMessage(fmt.Sprintf("Waiting for the external IP of LoadBalancer '%s' in namespace '%s'", serviceName, namespace))
+	InfoMessage(fmt.Sprintf("Waiting for the external IP of LoadBalancer service matching '%s'", ingressController))
 
-	// Create client from restConfig
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return "", fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
 	for time.Now().Before(deadline) {
-		service, err := clientset.CoreV1().Services(namespace).Get(context.TODO(), serviceName, v1.GetOptions{})
+		// List all services in all namespaces
+		svcList, err := clientset.CoreV1().Services("").List(context.TODO(), v1.ListOptions{})
 		if err != nil {
-			if !errors.IsNotFound(err) {
-				return "", fmt.Errorf("failed to get service %s in namespace %s: %w", serviceName, namespace, err)
-			}
-			// Service not found yet, continue waiting
-			fmt.Print(".")
-			time.Sleep(interval)
-			continue
+			return "", fmt.Errorf("failed to list services: %w", err)
 		}
 
-		// Check if external IP is assigned
-		if len(service.Status.LoadBalancer.Ingress) > 0 {
-			var externalIP string
-			if service.Status.LoadBalancer.Ingress[0].IP != "" {
-				externalIP = service.Status.LoadBalancer.Ingress[0].IP
-			} else if service.Status.LoadBalancer.Ingress[0].Hostname != "" {
-				externalIP = service.Status.LoadBalancer.Ingress[0].Hostname
+		foundMatch := false
+		for _, svc := range svcList.Items {
+			// Only consider LoadBalancer services
+			if svc.Spec.Type == "LoadBalancer" {
+				// Match on service name or namespace containing ingressController
+				if strings.Contains(svc.Name, ingressController) || strings.Contains(svc.Namespace, ingressController) {
+					foundMatch = true
+					// Check if external IP is assigned
+					if len(svc.Status.LoadBalancer.Ingress) > 0 {
+						var externalIP string
+						if svc.Status.LoadBalancer.Ingress[0].IP != "" {
+							externalIP = svc.Status.LoadBalancer.Ingress[0].IP
+						} else if svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
+							externalIP = svc.Status.LoadBalancer.Ingress[0].Hostname
+						}
+						if externalIP != "" {
+							InfoMessage(fmt.Sprintf("External IP for LoadBalancer '%s/%s': %s", svc.Namespace, svc.Name, externalIP))
+							return externalIP, nil
+						}
+					}
+				}
 			}
+		}
 
-			if externalIP != "" {
-				InfoMessage(fmt.Sprintf("External IP for LoadBalancer '%s': %s", serviceName, externalIP))
-				return externalIP, nil
-			}
+		if !foundMatch {
+			InfoMessage(fmt.Sprintf("No LoadBalancer service found matching '%s' yet...", ingressController))
 		}
 
 		fmt.Print(".")
 		time.Sleep(interval)
 	}
 
-	return "", fmt.Errorf("timeout: external IP not assigned for service '%s' in namespace '%s' within %v",
-		serviceName, namespace, maxWait)
+	return "", fmt.Errorf("timeout: external IP not assigned for any LoadBalancer service matching '%s' within %v", ingressController, maxWait)
 }
 
 // getVersion reads the version from the VERSION file

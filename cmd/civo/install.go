@@ -59,7 +59,8 @@ func init() {
 	InstallCmd.Flags().BoolVar(&sslEnable, "ssl", false, "Enable SSL usage")
 	InstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer")
 	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
-	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "Ingress Controller, it can be 'nginx' or 'traefik'")
+	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "First checks if an Ingress Controller is already installed, if not, then it can be 'nginx' or 'traefik'")
+	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
 
 }
 
@@ -149,32 +150,14 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to prepare values file: %w", err)
 	}
 
-	logOnFileStart()
-	var ingressErr error
-	if ingressController == "traefik" {
-		ingressErr = setupTraefik(restConfig)
-	} else if ingressController == "nginx" {
-		ingressErr = setupNginx(restConfig)
-	} else {
-		utils.InfoMessage(fmt.Sprintf("invalid ingress controller: %s", ingressController))
-		utils.InfoMessage("using default ingress controller: traefik")
-		ingressController = "traefik"
-		ingressErr = setupTraefik(restConfig)
-	}
-	logOnCliAndFileStart()
-	if ingressErr != nil {
-		return fmt.Errorf("failed to setup ingress controller: %w", ingressErr)
+	if err := setupIngressController(restConfig, logOnFileStart, logOnCliAndFileStart); err != nil {
+		return fmt.Errorf("failed to setup ingress controller: %w", err)
 	}
 
 	// wait for loadbalancer to be ready
 	utils.InfoMessage("waiting for loadbalancer to be ready...")
-	ingNs := "traefik"
-	ingSvc := "traefik"
-	if ingressController == "nginx" {
-		ingNs = "ingress-nginx"
-		ingSvc = "ingress-nginx-controller"
-	}
-	clusterIP, err = utils.GetClusterExternalIP(restConfig, ingNs, ingSvc)
+
+	clusterIP, err := utils.GetClusterExternalIP(restConfig, ingressController)
 	if err != nil {
 		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
 	}
@@ -183,6 +166,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	valuesFileName := "values-override.yaml"
 	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
 	valuesFiles := []string{valuesFilePath}
+	if len(additionalValuesFiles) > 0 {
+		valuesFiles = append(valuesFiles, additionalValuesFiles...)
+	}
+
 	// Step 3) Deploy "grsf-init"
 	utils.InfoMessage("Deploying 'grsf-init' chart...")
 	logOnFileStart()
@@ -321,6 +308,66 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	utils.SuccessMessage("Grapple installation completed!")
+	return nil
+}
+func setupIngressController(restConfig *rest.Config, logOnFileStart, logOnCliAndFileStart func()) error {
+	// Create a k8s client
+	clientset, err := apiv1.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	// List all IngressClasses
+	ingClassList, err := clientset.NetworkingV1().IngressClasses().List(context.TODO(), v1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list IngressClasses: %w", err)
+	}
+
+	// Check if any IngressClass is set as default
+	foundDefault := false
+	for _, ingClass := range ingClassList.Items {
+		if ingClass.Annotations != nil {
+			if val, ok := ingClass.Annotations["ingressclass.kubernetes.io/is-default-class"]; ok && (val == "true" || val == "True") {
+				foundDefault = true
+				ingressController = ingClass.Name
+				utils.InfoMessage(fmt.Sprintf("Found default IngressClass: %s", ingClass.Name))
+				break
+			}
+		}
+	}
+
+	if foundDefault {
+		utils.InfoMessage("A default IngressClass is already set. Proceeding with installation.")
+		return nil
+	}
+
+	if len(ingClassList.Items) > 0 {
+		utils.ErrorMessage("No IngressClass is set as default. Please set one of the following IngressClasses as default before proceeding:")
+		for _, ingClass := range ingClassList.Items {
+			utils.InfoMessage(fmt.Sprintf("  - Name: %s\n", ingClass.Name))
+		}
+		return fmt.Errorf("no IngressClass is set as default; please set one as default and rerun the installer")
+	}
+
+	logOnFileStart()
+	// If no IngressClass exists, install the requested ingress controller
+	var ingressErr error
+	if ingressController == "traefik" {
+		ingressErr = setupTraefik(restConfig)
+	} else if ingressController == "nginx" {
+		ingressErr = setupNginx(restConfig)
+	} else {
+		logOnCliAndFileStart()
+		utils.InfoMessage(fmt.Sprintf("invalid ingress controller: %s", ingressController))
+		utils.InfoMessage("using default ingress controller: traefik")
+		ingressController = "traefik"
+		logOnFileStart()
+		ingressErr = setupTraefik(restConfig)
+	}
+	logOnCliAndFileStart()
+	if ingressErr != nil {
+		return fmt.Errorf("failed to setup ingress controller: %w", ingressErr)
+	}
 	return nil
 }
 
