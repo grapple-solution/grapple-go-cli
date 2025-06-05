@@ -856,6 +856,7 @@ func InstallKubeBlocksOnCluster(
 					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
 				}
 			} else {
+
 				return nil
 			}
 			break
