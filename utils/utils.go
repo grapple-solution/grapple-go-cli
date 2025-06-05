@@ -384,13 +384,7 @@ func GetResourcePath(subdir string) (string, error) {
 	}
 
 	// Resolve the directory where Homebrew installed the CLI
-	var installDir string
-	// If the executable is in a "bin" directory, move up one level (Homebrew style), else use the executable's directory (Windows, etc)
-	if filepath.Base(filepath.Dir(execPath)) == "bin" {
-		installDir = filepath.Dir(filepath.Dir(execPath))
-	} else {
-		installDir = filepath.Dir(execPath)
-	}
+	installDir := filepath.Dir(filepath.Dir(execPath)) // Move up one level from bin/
 
 	// Construct the path to the requested resource
 	resourcePath := filepath.Join(installDir, "share", "grapple-go-cli", subdir)
