@@ -133,10 +133,49 @@ func configureKubeConfig(kubeConfig string) (*rest.Config, error) {
 		return nil, fmt.Errorf("failed to create .kube directory: %w", err)
 	}
 
-	// Write kubeconfig file
+	// Read existing kubeconfig
 	configPath := filepath.Join(kubeDir, "config")
-	if err := os.WriteFile(configPath, []byte(kubeConfig), 0600); err != nil {
-		return nil, fmt.Errorf("failed to write kubeconfig: %w", err)
+	existingConfig, err := clientcmd.LoadFromFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to load existing kubeconfig: %w", err)
+	}
+
+	// Parse the new kubeconfig
+	newConfig, err := clientcmd.Load([]byte(kubeConfig))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse new kubeconfig: %w", err)
+	}
+
+	// Merge configurations
+	if existingConfig == nil {
+		existingConfig = newConfig
+	} else {
+		// Merge clusters
+		for name, cluster := range newConfig.Clusters {
+			existingConfig.Clusters[name] = cluster
+		}
+
+		// Merge contexts
+		for name, context := range newConfig.Contexts {
+			existingConfig.Contexts[name] = context
+		}
+
+		// Merge authInfos (users)
+		for name, authInfo := range newConfig.AuthInfos {
+			existingConfig.AuthInfos[name] = authInfo
+		}
+
+		// Set the new context as current context
+		for name := range newConfig.Contexts {
+			existingConfig.CurrentContext = name
+			break
+		}
+	}
+
+	// Write merged config
+	err = clientcmd.WriteToFile(*existingConfig, configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write merged kubeconfig: %w", err)
 	}
 
 	// Load kubeconfig and initialize kubectl client
@@ -144,10 +183,12 @@ func configureKubeConfig(kubeConfig string) (*rest.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load kubeconfig: %w", err)
 	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
+
 	// Test client
 	_, err = clientset.CoreV1().Namespaces().List(context.TODO(), v1.ListOptions{})
 	if err != nil {
