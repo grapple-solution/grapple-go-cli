@@ -38,8 +38,8 @@ $downloadUrl = "https://github.com/$repo/releases/download/$Version/$zipFile"
 # Set installation directories
 $tempPath = "$env:TEMP\$zipFile"
 $extractPath = "$env:TEMP\grapple-extract"
-$binDir = "C:\Program Files\Grapple"
-$dataDir = "C:\Program Files\Grapple\share"
+$binDir = "C:\Program Files\Grapple\bin"
+$dataDir = "C:\Program Files\Grapple\share\grapple-go-cli"
 
 # Create extraction directory if it doesn't exist
 if (Test-Path $extractPath) {
