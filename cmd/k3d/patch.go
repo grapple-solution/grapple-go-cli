@@ -329,7 +329,7 @@ func configureDNSForMacOS() error {
 		}
 
 		utils.InfoMessage(fmt.Sprintf("Setting DNS server for %s", service))
-		if err := exec.Command("networksetup", "-setdnsservers", service, "127.0.0.1").Run(); err != nil {
+		if err := exec.Command("networksetup", "-setdnsservers", service, "127.0.0.1", "8.8.8.8", "8.8.4.4").Run(); err != nil {
 			utils.InfoMessage(fmt.Sprintf("Failed to set DNS server for %s: %v", service, err))
 		}
 	}
