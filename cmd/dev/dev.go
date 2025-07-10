@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/grapple-solution/grapple_cli/utils"
@@ -86,7 +87,13 @@ func runDev(cmd *cobra.Command, args []string) error {
 }
 
 func runDevspace() error {
-	devCmd := exec.Command("devspace", "dev")
+	var devCmd *exec.Cmd
+	if runtime.GOOS == "linux" {
+		devCmd = exec.Command("devspace", "dev")
+		devCmd.Env = append(os.Environ(), "DEVSPACE_LINUX=true")
+	} else {
+		devCmd = exec.Command("devspace", "dev")
+	}
 	devCmd.Stdout = os.Stdout
 	devCmd.Stderr = os.Stderr
 	if err := devCmd.Run(); err != nil {
