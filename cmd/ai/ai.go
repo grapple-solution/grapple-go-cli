@@ -11,41 +11,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
 )
 
-// Configuration
 const (
-	MCPServerURL = "https://your-lambda-url.amazonaws.com"
+	MCPServerURL = "https://7de4tnscxa.execute-api.eu-central-1.amazonaws.com/grapple-ai-mcp-server"
 )
 
-// AI Provider configuration
 type AIConfig struct {
 	Provider string `json:"provider"`
 	APIKey   string `json:"api_key"`
 }
 
-// MCP Client (simplified without auth)
 type MCPClient struct {
 	ServerURL string
 	Client    *http.Client
 }
 
-// AI Session interface
 type AISession interface {
 	Chat(prompt string) (string, error)
 }
 
-// NewMCPClient creates a new MCP client
-func NewMCPClient(serverURL string) *MCPClient {
-	return &MCPClient{
-		ServerURL: serverURL,
-		Client:    &http.Client{Timeout: 30 * time.Second},
-	}
-}
-
-// Main AI command implementation
 var AiCmd = &cobra.Command{
 	Use:   "ai",
 	Short: "AI-powered assistant for Grapple CRDs",
@@ -56,17 +44,14 @@ The AI assistant can help you:
 - Troubleshoot configuration issues
 - Generate complete application manifests`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Setup AI provider and get configuration
 		config, err := setupAIProvider()
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Error setting up AI provider: %v", err))
 			return
 		}
 
-		// Create MCP client (no auth needed)
 		mcpClient := NewMCPClient(MCPServerURL)
 
-		// Create AI session
 		aiSession, err := createAISession(config, mcpClient)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Error creating AI session: %v", err))
@@ -78,16 +63,20 @@ The AI assistant can help you:
 		fmt.Println("=" + strings.Repeat("=", 50))
 		fmt.Println()
 
-		// Main conversation loop
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(80),
+		)
+		if err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Error initializing renderer: %v", err))
+		}
 		for {
-			// Get user prompt
 			prompt, err := utils.PromptInput("You", "", "^.+$")
 			if err != nil {
 				utils.ErrorMessage(fmt.Sprintf("Error reading input: %v", err))
 				continue
 			}
 
-			// Check for exit commands
 			if strings.ToLower(strings.TrimSpace(prompt)) == "exit" ||
 				strings.ToLower(strings.TrimSpace(prompt)) == "quit" {
 				utils.InfoMessage("Goodbye!")
@@ -98,7 +87,6 @@ The AI assistant can help you:
 				continue
 			}
 
-			// Send to AI
 			utils.InfoMessage(fmt.Sprintf("%s:", strings.Title(config.Provider)))
 			fmt.Println(strings.Repeat("-", 50))
 
@@ -109,17 +97,18 @@ The AI assistant can help you:
 				continue
 			}
 
-			fmt.Println(response)
-			fmt.Println()
+			rendered, err := renderer.Render(response)
+			if err != nil {
+				utils.ErrorMessage(fmt.Sprintf("Error rendering response: %v", err))
+				continue
+			}
+			fmt.Println(rendered)
 		}
 	},
 }
 
 func init() {
-
-	// Optional flags for advanced users
 	AiCmd.Flags().StringP("provider", "p", "", "Force specific AI provider (anthropic, openai, gemini)")
-	// Examples in help
 	AiCmd.Example = `  # Start interactive AI session
   grpl ai
   
@@ -127,19 +116,83 @@ func init() {
   grpl ai --provider anthropic`
 }
 
-// CallTool calls an MCP tool
+func NewMCPClient(serverURL string) *MCPClient {
+	return &MCPClient{
+		ServerURL: serverURL,
+		Client:    &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+func (m *MCPClient) GetAvailableTools() ([]map[string]interface{}, error) {
+	eventPayload := map[string]interface{}{
+		"httpMethod": "GET",
+		"path":       "/mcp/tools",
+		"headers": map[string]interface{}{
+			"Content-Type": "application/json",
+		},
+		"queryStringParameters": nil,
+	}
+
+	eventBytes, err := json.Marshal(eventPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", m.ServerURL, bytes.NewBuffer(eventBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get tools: %s", string(body))
+	}
+
+	var result struct {
+		Tools []map[string]interface{} `json:"tools"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Tools, nil
+}
+
 func (m *MCPClient) CallTool(toolName string, arguments map[string]interface{}) (string, error) {
-	payload := map[string]interface{}{
+	bodyPayload := map[string]interface{}{
 		"name":      toolName,
 		"arguments": arguments,
 	}
-
-	payloadBytes, err := json.Marshal(payload)
+	bodyBytes, err := json.Marshal(bodyPayload)
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", m.ServerURL+"/mcp/tools/call", bytes.NewBuffer(payloadBytes))
+	eventPayload := map[string]interface{}{
+		"httpMethod": "POST",
+		"path":       "/mcp/tools/call",
+		"headers": map[string]interface{}{
+			"Content-Type": "application/json",
+		},
+		"body":                  string(bodyBytes),
+		"queryStringParameters": nil,
+	}
+
+	eventBytes, err := json.Marshal(eventPayload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", m.ServerURL, bytes.NewBuffer(eventBytes))
 	if err != nil {
 		return "", err
 	}
@@ -175,33 +228,122 @@ func (m *MCPClient) CallTool(toolName string, arguments map[string]interface{}) 
 	return "", fmt.Errorf("no content in tool response")
 }
 
-// ==================== CLAUDE IMPLEMENTATION ====================
+type ClaudeResponse struct {
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	StopReason string `json:"stop_reason"`
+	ToolUse    []struct {
+		ID        string                 `json:"id"`
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	} `json:"tool_use,omitempty"`
+}
+
 type ClaudeSession struct {
 	APIKey    string
 	MCPClient *MCPClient
+	Messages  []map[string]interface{}
 }
 
 func (c *ClaudeSession) Chat(prompt string) (string, error) {
-	// Simplified Claude implementation
+	tools, err := c.MCPClient.GetAvailableTools()
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP tools: %v\n", err)
+		tools = []map[string]interface{}{}
+	}
+
+	if c.Messages == nil {
+		c.Messages = []map[string]interface{}{}
+	}
+
+	if prompt != "" {
+		c.Messages = append(c.Messages, map[string]interface{}{
+			"role":    "user",
+			"content": prompt,
+		})
+	}
+
 	reqData := map[string]interface{}{
 		"model":      "claude-3-sonnet-20240229",
 		"max_tokens": 4000,
-		"messages": []map[string]interface{}{
-			{
-				"role":    "user",
-				"content": fmt.Sprintf("You are a helpful assistant for Grapple CRDs. Help the user with: %s", prompt),
-			},
-		},
+		"messages":   c.Messages,
+		"system":     "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
 	}
 
-	jsonData, err := json.Marshal(reqData)
+	if len(tools) > 0 {
+		reqData["tools"] = tools
+	}
+
+	response, err := c.callClaudeAPI(reqData)
 	if err != nil {
 		return "", err
+	}
+
+	if response.StopReason == "tool_use" && len(response.ToolUse) > 0 {
+		var contentParts []interface{}
+		if len(response.Content) > 0 && response.Content[0].Text != "" {
+			contentParts = append(contentParts, map[string]interface{}{
+				"type": "text",
+				"text": response.Content[0].Text,
+			})
+		}
+
+		for _, toolCall := range response.ToolUse {
+			contentParts = append(contentParts, map[string]interface{}{
+				"type":  "tool_use",
+				"id":    toolCall.ID,
+				"name":  toolCall.Name,
+				"input": toolCall.Arguments,
+			})
+
+			result, err := c.MCPClient.CallTool(toolCall.Name, toolCall.Arguments)
+			if err != nil {
+				result = fmt.Sprintf("Error calling tool %s: %v", toolCall.Name, err)
+			}
+
+			c.Messages = append(c.Messages, map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type":        "tool_result",
+						"tool_use_id": toolCall.ID,
+						"content":     result,
+					},
+				},
+			})
+		}
+
+		c.Messages = append(c.Messages, map[string]interface{}{
+			"role":    "assistant",
+			"content": contentParts,
+		})
+
+		return c.Chat("")
+	}
+
+	if len(response.Content) > 0 && response.Content[0].Text != "" {
+		c.Messages = append(c.Messages, map[string]interface{}{
+			"role":    "assistant",
+			"content": response.Content[0].Text,
+		})
+		return response.Content[0].Text, nil
+	}
+
+	return "", fmt.Errorf("no content in Claude response")
+}
+
+func (c *ClaudeSession) callClaudeAPI(reqData map[string]interface{}) (*ClaudeResponse, error) {
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -211,62 +353,143 @@ func (c *ClaudeSession) Chat(prompt string) (string, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var claudeResp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&claudeResp); err != nil {
-		return "", err
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Claude API error: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("Claude API error: status %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	if len(claudeResp.Content) > 0 {
-		return claudeResp.Content[0].Text, nil
+	var claudeResp ClaudeResponse
+	if err := json.Unmarshal(bodyBytes, &claudeResp); err != nil {
+		return nil, err
 	}
 
-	return "", fmt.Errorf("no content in Claude response")
+	return &claudeResp, nil
 }
 
-// ==================== OPENAI IMPLEMENTATION ====================
+type OpenAIResponse struct {
+	Choices []struct {
+		Message struct {
+			Content      string `json:"content"`
+			FunctionCall *struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"function_call,omitempty"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+}
+
 type OpenAISession struct {
 	APIKey    string
 	MCPClient *MCPClient
+	Messages  []map[string]interface{}
 }
 
 func (o *OpenAISession) Chat(prompt string) (string, error) {
-	reqData := map[string]interface{}{
-		"model": "gpt-4-turbo-preview",
-		"messages": []map[string]interface{}{
+	tools, err := o.MCPClient.GetAvailableTools()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP tools: %v\n", err)
+		tools = []map[string]interface{}{}
+	}
+
+	if o.Messages == nil {
+		o.Messages = []map[string]interface{}{
 			{
 				"role":    "system",
-				"content": "You are a helpful assistant for Grapple CRDs.",
+				"content": "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
 			},
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
+		}
+	}
+
+	if prompt != "" {
+		o.Messages = append(o.Messages, map[string]interface{}{
+			"role":    "user",
+			"content": prompt,
+		})
+	}
+
+	functions := []map[string]interface{}{}
+	for _, tool := range tools {
+		functions = append(functions, map[string]interface{}{
+			"name":        tool["name"],
+			"description": tool["description"],
+			"parameters":  tool["inputSchema"],
+		})
+	}
+
+	reqData := map[string]interface{}{
+		"model":      "gpt-3.5-turbo",
+		"messages":   o.Messages,
 		"max_tokens": 4000,
 	}
 
-	jsonData, err := json.Marshal(reqData)
+	if len(functions) > 0 {
+		reqData["functions"] = functions
+		reqData["function_call"] = "auto"
+	}
+
+	response, err := o.callOpenAIAPI(reqData)
 	if err != nil {
 		return "", err
+	}
+
+	if len(response.Choices) > 0 && response.Choices[0].Message.FunctionCall != nil {
+		functionCall := response.Choices[0].Message.FunctionCall
+
+		var args map[string]interface{}
+		if err := json.Unmarshal([]byte(functionCall.Arguments), &args); err != nil {
+			return "", fmt.Errorf("failed to parse function arguments: %v", err)
+		}
+
+		result, err := o.MCPClient.CallTool(functionCall.Name, args)
+		if err != nil {
+			result = fmt.Sprintf("Error calling tool %s: %v", functionCall.Name, err)
+		}
+
+		o.Messages = append(o.Messages, map[string]interface{}{
+			"role":          "assistant",
+			"content":       nil,
+			"function_call": functionCall,
+		})
+
+		o.Messages = append(o.Messages, map[string]interface{}{
+			"role":    "function",
+			"name":    functionCall.Name,
+			"content": result,
+		})
+
+		return o.Chat("")
+	}
+
+	if len(response.Choices) > 0 && response.Choices[0].Message.Content != "" {
+		content := response.Choices[0].Message.Content
+		o.Messages = append(o.Messages, map[string]interface{}{
+			"role":    "assistant",
+			"content": content,
+		})
+		return content, nil
+	}
+
+	return "", fmt.Errorf("no content in OpenAI response")
+}
+
+func (o *OpenAISession) callOpenAIAPI(reqData map[string]interface{}) (*OpenAIResponse, error) {
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -275,61 +498,193 @@ func (o *OpenAISession) Chat(prompt string) (string, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var openaiResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
-		return "", err
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI API error: status %d", resp.StatusCode)
+		errMsg := fmt.Sprintf("OpenAI API error: status %d, body: %s", resp.StatusCode, string(bodyBytes))
+		if resp.StatusCode == 429 {
+			return nil, fmt.Errorf("OpenAI API error: rate limit exceeded (status 429). Please try again later")
+		}
+		return nil, fmt.Errorf(errMsg)
 	}
 
-	if len(openaiResp.Choices) > 0 {
-		return openaiResp.Choices[0].Message.Content, nil
+	var openaiResp OpenAIResponse
+	if err := json.Unmarshal(bodyBytes, &openaiResp); err != nil {
+		return nil, err
 	}
 
-	return "", fmt.Errorf("no content in OpenAI response")
+	return &openaiResp, nil
 }
 
-// ==================== GEMINI IMPLEMENTATION ====================
+type GeminiResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text         string `json:"text,omitempty"`
+				FunctionCall *struct {
+					Name string                 `json:"name"`
+					Args map[string]interface{} `json:"args"`
+				} `json:"functionCall,omitempty"`
+			} `json:"parts"`
+		} `json:"content"`
+		FinishReason string `json:"finishReason"`
+	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int `json:"promptTokenCount"`
+		CandidatesTokenCount int `json:"candidatesTokenCount"`
+		TotalTokenCount      int `json:"totalTokenCount"`
+	} `json:"usageMetadata"`
+}
+
 type GeminiSession struct {
 	APIKey    string
 	MCPClient *MCPClient
+	History   []map[string]interface{}
 }
 
 func (g *GeminiSession) Chat(prompt string) (string, error) {
+	tools, err := g.MCPClient.GetAvailableTools()
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP tools: %v\n", err)
+		tools = []map[string]interface{}{}
+	}
+
+	if g.History == nil {
+		g.History = []map[string]interface{}{}
+	}
+
+	if prompt != "" {
+		g.History = append(g.History, map[string]interface{}{
+			"role": "user",
+			"parts": []map[string]interface{}{
+				{"text": prompt},
+			},
+		})
+	}
+
+	geminiTools := []map[string]interface{}{}
+	if len(tools) > 0 {
+		functionDeclarations := []map[string]interface{}{}
+		for _, tool := range tools {
+			functionDeclarations = append(functionDeclarations, map[string]interface{}{
+				"name":        tool["name"],
+				"description": tool["description"],
+				"parameters":  tool["inputSchema"],
+			})
+		}
+		geminiTools = append(geminiTools, map[string]interface{}{
+			"functionDeclarations": functionDeclarations,
+		})
+	}
+
 	reqData := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{
-						"text": fmt.Sprintf("You are a helpful assistant for Grapple CRDs. Help the user with: %s", prompt),
-					},
+		"contents": g.History,
+		"systemInstruction": map[string]interface{}{
+			"parts": []map[string]interface{}{
+				{
+					"text": "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
 				},
 			},
 		},
+		"generationConfig": map[string]interface{}{
+			"maxOutputTokens": 4000,
+		},
 	}
 
+	if len(geminiTools) > 0 {
+		reqData["tools"] = geminiTools
+	}
+
+	response, err := g.callGeminiAPI(reqData)
+	if err != nil {
+		return "", err
+	}
+
+	if len(response.Candidates) > 0 && len(response.Candidates[0].Content.Parts) > 0 {
+		candidate := response.Candidates[0]
+		var assistantParts []map[string]interface{}
+		var functionCalls []map[string]interface{}
+		var finalText string
+		var hasFunctionCalls bool
+
+		for _, part := range candidate.Content.Parts {
+			if part.FunctionCall != nil {
+				assistantParts = append(assistantParts, map[string]interface{}{
+					"functionCall": part.FunctionCall,
+				})
+				functionCalls = append(functionCalls, map[string]interface{}{
+					"name": part.FunctionCall.Name,
+					"args": part.FunctionCall.Args,
+				})
+				hasFunctionCalls = true
+			} else if part.Text != "" {
+				assistantParts = append(assistantParts, map[string]interface{}{
+					"text": part.Text,
+				})
+				finalText = part.Text
+			}
+		}
+
+		if len(assistantParts) > 0 {
+			g.History = append(g.History, map[string]interface{}{
+				"role":  "model",
+				"parts": assistantParts,
+			})
+		}
+
+		if hasFunctionCalls {
+			var functionResponses []map[string]interface{}
+			for _, fc := range functionCalls {
+				name := fc["name"].(string)
+				args := fc["args"].(map[string]interface{})
+
+				result, err := g.MCPClient.CallTool(name, args)
+				if err != nil {
+					result = fmt.Sprintf("Error calling tool %s: %v", name, err)
+				}
+
+				functionResponses = append(functionResponses, map[string]interface{}{
+					"functionResponse": map[string]interface{}{
+						"name": name,
+						"response": map[string]interface{}{
+							"result": result,
+						},
+					},
+				})
+			}
+
+			g.History = append(g.History, map[string]interface{}{
+				"role":  "function",
+				"parts": functionResponses,
+			})
+
+			return g.Chat("")
+		}
+
+		return finalText, nil
+	}
+
+	return "", fmt.Errorf("no content in Gemini response")
+}
+
+func (g *GeminiSession) callGeminiAPI(reqData map[string]interface{}) (*GeminiResponse, error) {
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=%s", g.APIKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", g.APIKey)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -337,41 +692,31 @@ func (g *GeminiSession) Chat(prompt string) (string, error) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var geminiResp struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
-		return "", err
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Gemini API error: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("Gemini API error: status %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	if len(geminiResp.Candidates) > 0 && len(geminiResp.Candidates[0].Content.Parts) > 0 {
-		return geminiResp.Candidates[0].Content.Parts[0].Text, nil
+	var geminiResp GeminiResponse
+	if err := json.Unmarshal(bodyBytes, &geminiResp); err != nil {
+		return nil, err
 	}
 
-	return "", fmt.Errorf("no content in Gemini response")
+	return &geminiResp, nil
 }
 
-// Get config directory path
 func getConfigDir() (string, error) {
 	tmpDir := os.TempDir()
 	configDir := filepath.Join(tmpDir, "grpl-cli")
 
-	// Create directory if it doesn't exist
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return "", err
 	}
@@ -379,7 +724,6 @@ func getConfigDir() (string, error) {
 	return configDir, nil
 }
 
-// Save AI configuration
 func saveAIConfig(config AIConfig) error {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -393,10 +737,9 @@ func saveAIConfig(config AIConfig) error {
 		return err
 	}
 
-	return os.WriteFile(configFile, data, 0600) // Secure permissions for API keys
+	return os.WriteFile(configFile, data, 0600)
 }
 
-// Load AI configuration
 func loadAIConfig() (*AIConfig, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -407,7 +750,7 @@ func loadAIConfig() (*AIConfig, error) {
 
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		return nil, err // File doesn't exist or can't be read
+		return nil, err
 	}
 
 	var config AIConfig
@@ -419,12 +762,10 @@ func loadAIConfig() (*AIConfig, error) {
 	return &config, nil
 }
 
-// Setup AI provider and credentials
 func setupAIProvider() (*AIConfig, error) {
 	utils.InfoMessage("Setting up AI provider for Grapple CLI")
 	fmt.Println()
 
-	// Check if config already exists
 	existingConfig, err := loadAIConfig()
 	if err == nil && existingConfig.Provider != "" && existingConfig.APIKey != "" {
 		utils.InfoMessage(fmt.Sprintf("Found existing configuration for %s", existingConfig.Provider))
@@ -438,7 +779,6 @@ func setupAIProvider() (*AIConfig, error) {
 		}
 	}
 
-	// Select AI provider
 	providers := []string{
 		"Anthropic (Claude)",
 		"OpenAI (GPT)",
@@ -467,9 +807,8 @@ func setupAIProvider() (*AIConfig, error) {
 		return nil, fmt.Errorf("invalid provider choice")
 	}
 
-	// Get API key
 	fmt.Println()
-	apiKey, err := utils.PromptInput(apiKeyPrompt+":", "", "^.+$")
+	apiKey, err := utils.PromptInput(apiKeyPrompt+":", "", ".*")
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +817,6 @@ func setupAIProvider() (*AIConfig, error) {
 		return nil, fmt.Errorf("API key cannot be empty")
 	}
 
-	// Save configuration
 	config := AIConfig{
 		Provider: provider,
 		APIKey:   apiKey,
@@ -493,7 +831,6 @@ func setupAIProvider() (*AIConfig, error) {
 	return &config, nil
 }
 
-// Create AI session based on provider
 func createAISession(config *AIConfig, mcpClient *MCPClient) (AISession, error) {
 	switch config.Provider {
 	case "anthropic":
