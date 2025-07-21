@@ -234,51 +234,23 @@ func checkAndAddLineToFile(filePath string, content string) error {
 }
 
 func configureDNSForLinux() error {
-	// Define file paths and content variables
-	resolvPath := "/tmp/resolv.conf"
-	dnsmasqPath := "/tmp/dnsmasq.conf"
-	nmConfPath := "/tmp/dns-local.conf"
 
-	localDNSServer := "127.0.0.1"
-	googleDNSServer := "8.8.8.8"
-	googleAltDNSServer := "8.8.4.4"
-	dnsDomain := "grpl-k3d.dev"
-
-	// Ensure both nameservers are present using the helper
-	if err := checkAndAddLineToFile(resolvPath, "nameserver "+localDNSServer); err != nil {
-		return err
-	}
-	if err := checkAndAddLineToFile(resolvPath, "nameserver "+googleDNSServer); err != nil {
-		return err
+	// Create resolv.conf file
+	resolvContent := "nameserver 127.0.0.1\nnameserver 8.8.8.8"
+	if err := os.WriteFile("/tmp/resolv.conf", []byte(resolvContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary resolv.conf: %w", err)
 	}
 
-	// Ensure each dnsmasq.conf line is present using the helper
-	dnsmasqLine1 := "listen-address=" + localDNSServer
-	dnsmasqLine2 := "server=" + googleDNSServer
-	dnsmasqLine3 := "server=" + googleAltDNSServer
-	dnsmasqLine4 := "address=/" + dnsDomain + "/" + localDNSServer
-
-	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine1); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine2); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine3); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine4); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
+	// Create dnsmasq.conf file
+	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\n"
+	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
 	}
 
-	// Ensure NetworkManager DNS configuration lines are present using the helper
-	nmLine1 := "[main]"
-	nmLine2 := "dns=dnsmasq"
-	if err := checkAndAddLineToFile(nmConfPath, nmLine1); err != nil {
-		return fmt.Errorf("failed to update NetworkManager DNS config: %w", err)
-	}
-	if err := checkAndAddLineToFile(nmConfPath, nmLine2); err != nil {
-		return fmt.Errorf("failed to update NetworkManager DNS config: %w", err)
+	// Create NetworkManager DNS configuration
+	nmContent := "[main]\ndns=dnsmasq"
+	if err := os.WriteFile("/tmp/dns-local.conf", []byte(nmContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary NetworkManager DNS config: %w", err)
 	}
 
 	// Display commands to be executed
@@ -301,16 +273,16 @@ func configureDNSForLinux() error {
 	if err := exec.Command("sudo", "rm", "/etc/resolv.conf").Run(); err != nil {
 		return fmt.Errorf("failed to remove existing resolv.conf: %w", err)
 	}
-	if err := exec.Command("sudo", "cp", resolvPath, "/etc/resolv.conf").Run(); err != nil {
+	if err := exec.Command("sudo", "cp", "/tmp/resolv.conf", "/etc/resolv.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy resolv.conf: %w", err)
 	}
-	if err := exec.Command("sudo", "cp", dnsmasqPath, "/etc/dnsmasq.conf").Run(); err != nil {
+	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", "/etc/dnsmasq.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy dnsmasq.conf: %w", err)
 	}
 	if err := exec.Command("sudo", "mkdir", "-p", "/etc/NetworkManager/conf.d").Run(); err != nil {
 		return fmt.Errorf("failed to create NetworkManager conf.d directory: %w", err)
 	}
-	if err := exec.Command("sudo", "cp", nmConfPath, "/etc/NetworkManager/conf.d/dns-local.conf").Run(); err != nil {
+	if err := exec.Command("sudo", "cp", "/tmp/dns-local.conf", "/etc/NetworkManager/conf.d/dns-local.conf").Run(); err != nil {
 		return fmt.Errorf("failed to copy NetworkManager DNS config: %w", err)
 	}
 
@@ -329,38 +301,11 @@ func configureDNSForLinux() error {
 
 	return nil
 }
-
 func configureDNSForMacOS() error {
-	// Define file paths and content variables
-	dnsmasqTmpPath := "/tmp/dnsmasq.conf"
-	resolverTmpPath := "/tmp/resolver-grpl-k3d.dev"
-	dnsDomain := "grpl-k3d.dev"
-	localDNSServer := "127.0.0.1"
-	googleDNSServer := "8.8.8.8"
-	googleAltDNSServer := "8.8.4.4"
-	dnsmasqPort := "5353"
-
-	// Ensure each dnsmasq.conf line is present using the helper
-	dnsmasqLine1 := "listen-address=" + localDNSServer
-	dnsmasqLine2 := "server=" + googleDNSServer
-	dnsmasqLine3 := "server=" + googleAltDNSServer
-	dnsmasqLine4 := "address=/" + dnsDomain + "/" + localDNSServer
-	dnsmasqLine5 := "port=" + dnsmasqPort
-
-	if err := checkAndAddLineToFile(dnsmasqTmpPath, dnsmasqLine1); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqTmpPath, dnsmasqLine2); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqTmpPath, dnsmasqLine3); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqTmpPath, dnsmasqLine4); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
-	}
-	if err := checkAndAddLineToFile(dnsmasqTmpPath, dnsmasqLine5); err != nil {
-		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
+	// Create dnsmasq.conf file
+	dnsmasqContent := "listen-address=127.0.0.1\nserver=8.8.8.8\nserver=8.8.4.4\naddress=/grpl-k3d.dev/127.0.0.1\nport=5353\n"
+	if err := os.WriteFile("/tmp/dnsmasq.conf", []byte(dnsmasqContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary dnsmasq.conf: %w", err)
 	}
 
 	// Get homebrew prefix dynamically
@@ -371,18 +316,8 @@ func configureDNSForMacOS() error {
 	brewPrefix := strings.TrimSpace(string(homebrewPrefix))
 	dnsmasqPath := fmt.Sprintf("%s/etc/dnsmasq.conf", brewPrefix)
 
-	// Ensure resolver file lines are present using the helper
-	resolverLine1 := "nameserver " + localDNSServer
-	resolverLine2 := "port " + dnsmasqPort
-	if err := checkAndAddLineToFile(resolverTmpPath, resolverLine1); err != nil {
-		return fmt.Errorf("failed to update resolver file: %w", err)
-	}
-	if err := checkAndAddLineToFile(resolverTmpPath, resolverLine2); err != nil {
-		return fmt.Errorf("failed to update resolver file: %w", err)
-	}
-
 	// Display commands to be executed
-	commandsToRun := fmt.Sprintf("sudo cp /tmp/dnsmasq.conf %s && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && sudo cp /tmp/resolver-grpl-k3d.dev /etc/resolver/grpl-k3d.dev", dnsmasqPath)
+	commandsToRun := fmt.Sprintf("sudo cp /tmp/dnsmasq.conf %s && brew services restart dnsmasq && sudo mkdir -p /etc/resolver && echo \"nameserver 127.0.0.1\nport 5353\" | sudo tee /etc/resolver/grpl-k3d.dev", dnsmasqPath)
 	utils.InfoMessage("Going to run following commands:")
 	fmt.Println(commandsToRun)
 
@@ -397,7 +332,7 @@ func configureDNSForMacOS() error {
 		}
 	}
 
-	if err := exec.Command("sudo", "cp", dnsmasqTmpPath, dnsmasqPath).Run(); err != nil {
+	if err := exec.Command("sudo", "cp", "/tmp/dnsmasq.conf", dnsmasqPath).Run(); err != nil {
 		return fmt.Errorf("failed to copy dnsmasq.conf to %s: %w", dnsmasqPath, err)
 	}
 
@@ -405,7 +340,12 @@ func configureDNSForMacOS() error {
 		return fmt.Errorf("failed to create resolver directory: %w", err)
 	}
 
-	if err := exec.Command("sudo", "cp", resolverTmpPath, "/etc/resolver/grpl-k3d.dev").Run(); err != nil {
+	// Create resolver file with port 5353
+	resolverContent := "nameserver 127.0.0.1\nport 5353"
+	if err := os.WriteFile("/tmp/resolver-grpl-k3d.dev", []byte(resolverContent), 0644); err != nil {
+		return fmt.Errorf("failed to create temporary resolver file: %w", err)
+	}
+	if err := exec.Command("sudo", "cp", "/tmp/resolver-grpl-k3d.dev", "/etc/resolver/grpl-k3d.dev").Run(); err != nil {
 		return fmt.Errorf("failed to copy resolver file: %w", err)
 	}
 
