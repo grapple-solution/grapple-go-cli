@@ -20,7 +20,11 @@ This command combines the functionality of 'create' and 'install' commands.`,
 func init() {
 	// Create command flags
 	CreateInstallCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster")
-	CreateInstallCmd.Flags().IntVarP(&nodes, "nodes", "n", 1, "Number of nodes (default: 1)")
+	CreateInstallCmd.Flags().IntVar(&server, "servers", 1, "Number of server nodes")
+	CreateInstallCmd.Flags().IntVar(&agent, "agents", 0, "Number of agent nodes")
+	CreateInstallCmd.Flags().StringVar(&httpLoadBalancer, "http-loadbalancer", "80:80@loadbalancer", "Port mapping for HTTP load balancer")
+	CreateInstallCmd.Flags().StringVar(&httpsLoadBalancer, "https-loadbalancer", "443:443@loadbalancer", "Port mapping for HTTPS load balancer")
+	CreateInstallCmd.Flags().StringVar(&apiPort, "api-port", "6550", "API port for the k3d cluster")
 	CreateInstallCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
 	CreateInstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
 

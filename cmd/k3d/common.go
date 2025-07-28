@@ -20,10 +20,14 @@ var (
 	grappleLicense        string
 	completeDomain        string
 	clusterName           string
-	nodes                 int
 	waitForReady          bool
 	skipConfirmation      bool
 	additionalValuesFiles []string
+	server                int
+	agent                 int
+	httpLoadBalancer      string
+	httpsLoadBalancer     string
+	apiPort               string
 )
 
 // fileExists checks if a file exists and is not a directory
