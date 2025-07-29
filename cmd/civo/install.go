@@ -150,15 +150,11 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to setup ingress controller: %w", err)
 	}
 
-	// wait for loadbalancer to be ready
-	utils.InfoMessage("waiting for loadbalancer to be ready...")
-
 	// Use the new function to get the Civo cluster's external IP
 	clusterIP, err := getCivoClusterExternalIP()
 	if err != nil {
 		return fmt.Errorf("failed to get Civo cluster external IP: %w", err)
 	}
-	utils.SuccessMessage("Loadbalancer setup completed.")
 
 	valuesFileName := "values-override.yaml"
 	valuesFilePath := filepath.Join(os.TempDir(), valuesFileName)
@@ -368,25 +364,25 @@ func setupIngressController(restConfig *rest.Config, logOnFileStart, logOnCliAnd
 		return fmt.Errorf("no IngressClass is set as default; please set one as default and rerun the installer")
 	}
 
-	logOnFileStart()
-	// If no IngressClass exists, install the requested ingress controller
-	var ingressErr error
-	if ingressController == "traefik" {
-		ingressErr = setupTraefik(restConfig)
-	} else if ingressController == "nginx" {
-		ingressErr = setupNginx(restConfig)
-	} else {
-		logOnCliAndFileStart()
-		utils.InfoMessage(fmt.Sprintf("invalid ingress controller: %s", ingressController))
-		utils.InfoMessage("using default ingress controller: traefik")
-		ingressController = "traefik"
-		logOnFileStart()
-		ingressErr = setupTraefik(restConfig)
-	}
-	logOnCliAndFileStart()
-	if ingressErr != nil {
-		return fmt.Errorf("failed to setup ingress controller: %w", ingressErr)
-	}
+	// logOnFileStart()
+	// // If no IngressClass exists, install the requested ingress controller
+	// var ingressErr error
+	// if ingressController == "traefik" {
+	// 	ingressErr = setupTraefik(restConfig)
+	// } else if ingressController == "nginx" {
+	// 	ingressErr = setupNginx(restConfig)
+	// } else {
+	// 	logOnCliAndFileStart()
+	// 	utils.InfoMessage(fmt.Sprintf("invalid ingress controller: %s", ingressController))
+	// 	utils.InfoMessage("using default ingress controller: traefik")
+	// 	ingressController = "traefik"
+	// 	logOnFileStart()
+	// 	ingressErr = setupTraefik(restConfig)
+	// }
+	// logOnCliAndFileStart()
+	// if ingressErr != nil {
+	// 	return fmt.Errorf("failed to setup ingress controller: %w", ingressErr)
+	// }
 	return nil
 }
 
