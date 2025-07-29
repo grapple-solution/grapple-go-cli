@@ -19,10 +19,6 @@ import (
 	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/repo"
 
-	// Helm libraries
-
-	// Kubernetes libraries
-
 	networkingv1 "k8s.io/api/networking/v1"
 	apiextclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -157,9 +153,10 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	// wait for loadbalancer to be ready
 	utils.InfoMessage("waiting for loadbalancer to be ready...")
 
-	clusterIP, err := utils.GetClusterExternalIP(restConfig, ingressController)
+	// Use the new function to get the Civo cluster's external IP
+	clusterIP, err := getCivoClusterExternalIP()
 	if err != nil {
-		return fmt.Errorf("failed to get k3d cluster IP: %w", err)
+		return fmt.Errorf("failed to get Civo cluster external IP: %w", err)
 	}
 	utils.SuccessMessage("Loadbalancer setup completed.")
 
@@ -310,6 +307,28 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	utils.SuccessMessage("Grapple installation completed!")
 	return nil
 }
+
+// getCivoClusterExternalIP retrieves the external IP of the Civo cluster using the Civo API
+func getCivoClusterExternalIP() (string, error) {
+	// Use civoClusterID and civoRegion to get the cluster
+	if civoClusterID == "" || civoRegion == "" {
+		return "", fmt.Errorf("civoClusterID or civoRegion is not set")
+	}
+	civoAPIKey := getCivoAPIKey()
+	client, err := civogo.NewClient(civoAPIKey, civoRegion)
+	if err != nil {
+		return "", fmt.Errorf("failed to create civo client: %w", err)
+	}
+	cluster, err := client.GetKubernetesCluster(civoClusterID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get civo cluster: %w", err)
+	}
+	if cluster.MasterIP == "" {
+		return "", fmt.Errorf("Civo cluster does not have a MasterIP assigned yet")
+	}
+	return cluster.MasterIP, nil
+}
+
 func setupIngressController(restConfig *rest.Config, logOnFileStart, logOnCliAndFileStart func()) error {
 	// Create a k8s client
 	clientset, err := apiv1.NewForConfig(restConfig)
@@ -540,8 +559,6 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 			}
 		}
 
-		// clusterIP = cluster.MasterIP
-		// utils.InfoMessage(fmt.Sprintf("Selected civo master ip: %s", clusterIP))
 		// Build restConfig from civo cluster's kubeconfig
 		kubeconfigBytes := []byte(cluster.KubeConfig)
 		restConfig, err = clientcmd.RESTConfigFromKubeConfig(kubeconfigBytes)
