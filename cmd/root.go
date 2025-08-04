@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/grapple-solution/grapple_cli/cmd/ai"
 	"github.com/grapple-solution/grapple_cli/cmd/application"
 	"github.com/grapple-solution/grapple_cli/cmd/civo" // Import the civo package
 	"github.com/grapple-solution/grapple_cli/cmd/dev"
@@ -39,4 +40,5 @@ func init() {
 	rootCmd.AddCommand(application.ApplicationCmd)
 	rootCmd.AddCommand(dev.DevCmd)
 	rootCmd.AddCommand(version.VersionCmd)
+	rootCmd.AddCommand(ai.AiCmd)
 }
