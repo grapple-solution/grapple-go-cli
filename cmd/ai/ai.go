@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,6 +33,135 @@ type MCPClient struct {
 
 type AISession interface {
 	Chat(prompt string) (string, error)
+}
+
+// Add GetAvailablePrompts to MCPClient
+func (m *MCPClient) GetAvailablePrompts() ([]map[string]interface{}, error) {
+	eventPayload := map[string]interface{}{
+		"httpMethod": "GET",
+		"path":       "/mcp/prompts",
+		"headers": map[string]interface{}{
+			"Content-Type": "application/json",
+		},
+		"queryStringParameters": nil,
+	}
+
+	eventBytes, err := json.Marshal(eventPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", m.ServerURL, bytes.NewBuffer(eventBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get prompts: %s", string(body))
+	}
+
+	var result struct {
+		Prompts []map[string]interface{} `json:"prompts"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Prompts, nil
+}
+
+// Helper: Extract YAML blocks from a string
+func extractYAMLBlocks(s string) []string {
+	// This regex matches code blocks with yaml/yml or indented yaml
+	re := regexp.MustCompile("(?s)```(?:yaml|yml)?\\s*([\\s\\S]*?)```")
+	matches := re.FindAllStringSubmatch(s, -1)
+	var yamls []string
+	for _, m := range matches {
+		yaml := strings.TrimSpace(m[1])
+		if yaml != "" {
+			yamls = append(yamls, yaml)
+		}
+	}
+	// Also try to find standalone YAML (starts with apiVersion: or kind:)
+	if len(yamls) == 0 {
+		lines := strings.Split(s, "\n")
+		var buf []string
+		inYaml := false
+		for _, line := range lines {
+			trim := strings.TrimSpace(line)
+			if strings.HasPrefix(trim, "apiVersion:") || strings.HasPrefix(trim, "kind:") {
+				inYaml = true
+			}
+			if inYaml {
+				buf = append(buf, line)
+			}
+			// End YAML block if we hit an empty line after starting
+			if inYaml && trim == "" && len(buf) > 0 {
+				break
+			}
+		}
+		if len(buf) > 0 {
+			yamls = append(yamls, strings.TrimSpace(strings.Join(buf, "\n")))
+		}
+	}
+	return yamls
+}
+
+// Helper: Suggest a filename for a YAML block
+func suggestYAMLFilename(yaml string) string {
+	// Try to extract kind and metadata.name
+	kind := ""
+	name := ""
+	lines := strings.Split(yaml, "\n")
+	for _, line := range lines {
+		if kind == "" && strings.HasPrefix(strings.TrimSpace(line), "kind:") {
+			kind = strings.TrimSpace(strings.TrimPrefix(line, "kind:"))
+			kind = strings.ToLower(strings.ReplaceAll(kind, " ", ""))
+		}
+		if name == "" && strings.HasPrefix(strings.TrimSpace(line), "name:") {
+			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			name = strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		}
+		if kind != "" && name != "" {
+			break
+		}
+	}
+	base := "resource"
+	if kind != "" {
+		base = kind
+	}
+	if name != "" {
+		base = base + "-" + name
+	}
+	return base + ".yaml"
+}
+
+// Helper: Find a unique filename in the current directory
+func uniqueFilename(base string) string {
+	_, err := os.Stat(base)
+	if os.IsNotExist(err) {
+		return base
+	}
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	for i := 1; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s-%d%s", name, i, ext)
+		_, err := os.Stat(candidate)
+		if os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return fmt.Sprintf("%s-%d%s", name, time.Now().Unix(), ext)
 }
 
 var AiCmd = &cobra.Command{
@@ -103,6 +233,30 @@ The AI assistant can help you:
 				continue
 			}
 			fmt.Println(rendered)
+
+			// --- YAML detection and save prompt ---
+			yamlBlocks := extractYAMLBlocks(response)
+			if len(yamlBlocks) > 0 {
+				for _, yaml := range yamlBlocks {
+					fmt.Println()
+					utils.InfoMessage("YAML detected in the response.")
+					suggested := suggestYAMLFilename(yaml)
+					filename := uniqueFilename(suggested)
+					save, err := utils.PromptInput(fmt.Sprintf("Do you want to save the YAML to '%s'? (y/n)", filename), "y", "^[yYnN]$")
+					if err != nil {
+						utils.ErrorMessage(fmt.Sprintf("Error reading input: %v", err))
+						continue
+					}
+					if strings.ToLower(save) == "y" {
+						err := os.WriteFile(filename, []byte(yaml), 0644)
+						if err != nil {
+							utils.ErrorMessage(fmt.Sprintf("Failed to save YAML: %v", err))
+						} else {
+							utils.SuccessMessage(fmt.Sprintf("YAML saved to %s", filename))
+						}
+					}
+				}
+			}
 		}
 	},
 }
@@ -249,10 +403,16 @@ type ClaudeSession struct {
 
 func (c *ClaudeSession) Chat(prompt string) (string, error) {
 	tools, err := c.MCPClient.GetAvailableTools()
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP tools: %v\n", err)
 		tools = []map[string]interface{}{}
+	}
+
+	// Get prompts from MCP server
+	prompts, err := c.MCPClient.GetAvailablePrompts()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP prompts: %v\n", err)
+		prompts = []map[string]interface{}{}
 	}
 
 	if c.Messages == nil {
@@ -266,11 +426,25 @@ func (c *ClaudeSession) Chat(prompt string) (string, error) {
 		})
 	}
 
+	// Compose system message with prompts
+	systemMsg := "You are a helpful assistant for Grapple CRDs. You have access to MCP tools and prompts that can help you interact with Kubernetes resources and Grapple configurations. Use these tools and prompts when appropriate to provide accurate and helpful responses."
+	if len(prompts) > 0 {
+		var promptTexts []string
+		for _, p := range prompts {
+			if text, ok := p["text"].(string); ok && text != "" {
+				promptTexts = append(promptTexts, text)
+			}
+		}
+		if len(promptTexts) > 0 {
+			systemMsg += "\n\nAvailable Prompts:\n" + strings.Join(promptTexts, "\n")
+		}
+	}
+
 	reqData := map[string]interface{}{
 		"model":      "claude-3-sonnet-20240229",
 		"max_tokens": 4000,
 		"messages":   c.Messages,
-		"system":     "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
+		"system":     systemMsg,
 	}
 
 	if len(tools) > 0 {
@@ -400,11 +574,18 @@ func (o *OpenAISession) Chat(prompt string) (string, error) {
 		tools = []map[string]interface{}{}
 	}
 
+	// Get prompts from MCP server
+	prompts, err := o.MCPClient.GetAvailablePrompts()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP prompts: %v\n", err)
+		prompts = []map[string]interface{}{}
+	}
+
 	if o.Messages == nil {
 		o.Messages = []map[string]interface{}{
 			{
 				"role":    "system",
-				"content": "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
+				"content": "", // will be set below
 			},
 		}
 	}
@@ -414,6 +595,24 @@ func (o *OpenAISession) Chat(prompt string) (string, error) {
 			"role":    "user",
 			"content": prompt,
 		})
+	}
+
+	// Compose system message with prompts
+	systemMsg := "You are a helpful assistant for Grapple CRDs. You have access to MCP tools and prompts that can help you interact with Kubernetes resources and Grapple configurations. Use these tools and prompts when appropriate to provide accurate and helpful responses."
+	if len(prompts) > 0 {
+		var promptTexts []string
+		for _, p := range prompts {
+			if text, ok := p["text"].(string); ok && text != "" {
+				promptTexts = append(promptTexts, text)
+			}
+		}
+		if len(promptTexts) > 0 {
+			systemMsg += "\n\nAvailable Prompts:\n" + strings.Join(promptTexts, "\n")
+		}
+	}
+	// Always set the first system message to the composed systemMsg
+	if len(o.Messages) > 0 && o.Messages[0]["role"] == "system" {
+		o.Messages[0]["content"] = systemMsg
 	}
 
 	functions := []map[string]interface{}{}
@@ -430,11 +629,11 @@ func (o *OpenAISession) Chat(prompt string) (string, error) {
 		"messages":   o.Messages,
 		"max_tokens": 4000,
 	}
-
 	if len(functions) > 0 {
 		reqData["functions"] = functions
 		reqData["function_call"] = "auto"
 	}
+	// Do NOT send prompts as a separate field
 
 	response, err := o.callOpenAIAPI(reqData)
 	if err != nil {
@@ -551,10 +750,16 @@ type GeminiSession struct {
 
 func (g *GeminiSession) Chat(prompt string) (string, error) {
 	tools, err := g.MCPClient.GetAvailableTools()
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP tools: %v\n", err)
 		tools = []map[string]interface{}{}
+	}
+
+	// Get prompts from MCP server
+	prompts, err := g.MCPClient.GetAvailablePrompts()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Could not fetch MCP prompts: %v\n", err)
+		prompts = []map[string]interface{}{}
 	}
 
 	if g.History == nil {
@@ -585,12 +790,26 @@ func (g *GeminiSession) Chat(prompt string) (string, error) {
 		})
 	}
 
+	// Compose systemInstruction with prompts
+	systemMsg := "You are a helpful assistant for Grapple CRDs. You have access to MCP tools and prompts that can help you interact with Kubernetes resources and Grapple configurations. Use these tools and prompts when appropriate to provide accurate and helpful responses."
+	if len(prompts) > 0 {
+		var promptTexts []string
+		for _, p := range prompts {
+			if text, ok := p["text"].(string); ok && text != "" {
+				promptTexts = append(promptTexts, text)
+			}
+		}
+		if len(promptTexts) > 0 {
+			systemMsg += "\n\nAvailable Prompts:\n" + strings.Join(promptTexts, "\n")
+		}
+	}
+
 	reqData := map[string]interface{}{
 		"contents": g.History,
 		"systemInstruction": map[string]interface{}{
 			"parts": []map[string]interface{}{
 				{
-					"text": "You are a helpful assistant for Grapple CRDs. You have access to MCP tools that can help you interact with Kubernetes resources and Grapple configurations. Use these tools when appropriate to provide accurate and helpful responses.",
+					"text": systemMsg,
 				},
 			},
 		},
@@ -598,10 +817,10 @@ func (g *GeminiSession) Chat(prompt string) (string, error) {
 			"maxOutputTokens": 4000,
 		},
 	}
-
 	if len(geminiTools) > 0 {
 		reqData["tools"] = geminiTools
 	}
+	// Do NOT send prompts as a separate field
 
 	response, err := g.callGeminiAPI(reqData)
 	if err != nil {
