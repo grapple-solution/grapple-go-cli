@@ -24,8 +24,12 @@ var CreateCmd = &cobra.Command{
 
 func init() {
 	CreateCmd.Flags().StringVarP(&clusterName, "cluster-name", "", "", "Name of the cluster")
-	CreateCmd.Flags().IntVarP(&nodes, "nodes", "n", 1, "Number of nodes (default: 1)")
-	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
+	CreateCmd.Flags().IntVar(&server, "servers", 1, "Number of server nodes")
+	CreateCmd.Flags().IntVar(&agent, "agents", 0, "Number of agent nodes")
+	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready")
+	CreateCmd.Flags().StringVar(&httpLoadBalancer, "http-loadbalancer", "80:80@loadbalancer", "Port mapping for HTTP load balancer")
+	CreateCmd.Flags().StringVar(&httpsLoadBalancer, "https-loadbalancer", "443:443@loadbalancer", "Port mapping for HTTPS load balancer")
+	CreateCmd.Flags().StringVar(&apiPort, "api-port", "6550", "API port for the k3d cluster")
 }
 
 // Function to handle the "create" command logic
@@ -73,10 +77,11 @@ func createCluster(cmd *cobra.Command, args []string) error {
 	utils.InfoMessage(fmt.Sprintf("Creating cluster '%s', it may take a while...", clusterName))
 	createCmdArgs := []string{
 		"cluster", "create", clusterName,
-		"--servers", fmt.Sprintf("%d", nodes),
-		"--api-port", "6550",
-		"-p", "80:80@loadbalancer",
-		"-p", "443:443@loadbalancer",
+		"--servers", fmt.Sprintf("%d", server),
+		"--agents", fmt.Sprintf("%d", agent),
+		"--api-port", apiPort,
+		"-p", httpLoadBalancer,
+		"-p", httpsLoadBalancer,
 	}
 	if waitForReady {
 		createCmdArgs = append(createCmdArgs, "--wait")
