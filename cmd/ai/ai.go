@@ -1027,7 +1027,7 @@ func setupAIProvider() (*AIConfig, error) {
 	}
 
 	fmt.Println()
-	apiKey, err := utils.PromptInput(apiKeyPrompt+":", "", ".*")
+	apiKey, err := utils.PromptPassword(apiKeyPrompt + ":")
 	if err != nil {
 		return nil, err
 	}
