@@ -23,9 +23,6 @@ import (
 
 	// Kubernetes libraries
 
-	networkingv1 "k8s.io/api/networking/v1"
-	apiextclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiv1 "k8s.io/client-go/kubernetes"
 
@@ -708,7 +705,7 @@ func setupTraefik(restConfig *rest.Config) error {
 		// Add the Traefik Helm repository
 		repoEntry := repo.Entry{
 			Name: "traefik",
-			URL:  "https://helm.traefik.io/traefik",
+			URL:  "https://traefik.github.io/charts",
 		}
 
 		chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
@@ -766,17 +763,21 @@ func setupTraefik(restConfig *rest.Config) error {
 			return err
 		}
 
-		// Set values
+		// Set values based on the configuration from file_context_0
 		values := map[string]interface{}{
-			"service": map[string]interface{}{
-				"type": "LoadBalancer",
+			"deployment": map[string]interface{}{
+				"kind": "DaemonSet",
+			},
+			"ingressClass": map[string]interface{}{
+				"enabled":        true,
+				"isDefaultClass": true,
 			},
 			"ports": map[string]interface{}{
 				"web": map[string]interface{}{
-					"port": 80,
+					"hostPort": 80,
 				},
 				"websecure": map[string]interface{}{
-					"port": 443,
+					"hostPort": 443,
 				},
 			},
 		}
@@ -876,7 +877,7 @@ func setupNginx(restConfig *rest.Config) error {
 		installClient.Namespace = "ingress-nginx"
 		installClient.CreateNamespace = true
 		installClient.ReleaseName = "ingress-nginx"
-		installClient.Version = "" // Consider setting a specific version that's compatible with K8s 1.28
+		installClient.Version = ""
 
 		// Locate and load the chart
 		chartPath, err := installClient.ChartPathOptions.LocateChart("ingress-nginx/ingress-nginx", settings)
@@ -892,19 +893,17 @@ func setupNginx(restConfig *rest.Config) error {
 			return err
 		}
 
-		// Set values - updated to ensure default IngressClass is properly set
+		// Set values based on the configuration from file_context_0
 		values := map[string]interface{}{
 			"controller": map[string]interface{}{
-				"service": map[string]interface{}{
-					"type": "LoadBalancer",
-				},
+				"kind":      "DaemonSet",
+				"dnsPolicy": "ClusterFirstWithHostNet",
 				"ingressClassResource": map[string]interface{}{
-					"name":            "nginx",
-					"enabled":         true,
-					"default":         true,
-					"controllerValue": "k8s.io/ingress-nginx",
+					"default": true,
 				},
-				"watchIngressWithoutClass": true,
+				"config": map[string]interface{}{
+					"proxy-body-size": "50m",
+				},
 			},
 		}
 
@@ -917,111 +916,7 @@ func setupNginx(restConfig *rest.Config) error {
 
 		utils.InfoMessage("NGINX Ingress Controller installed successfully")
 	} else {
-		utils.InfoMessage("NGINX Ingress Controller already installed, updating to make it default...")
-
-		// Create upgrade client to update the existing installation
-		upgradeClient := action.NewUpgrade(helmCfg)
-		upgradeClient.Namespace = "ingress-nginx"
-
-		// Set values for the upgrade
-		values := map[string]interface{}{
-			"controller": map[string]interface{}{
-				"service": map[string]interface{}{
-					"type": "LoadBalancer",
-				},
-				"ingressClassResource": map[string]interface{}{
-					"name":            "nginx",
-					"enabled":         true,
-					"default":         true,
-					"controllerValue": "k8s.io/ingress-nginx",
-				},
-				"watchIngressWithoutClass": true,
-			},
-		}
-
-		// Locate chart
-		settings := cli.New()
-		chartPath, err := upgradeClient.ChartPathOptions.LocateChart("ingress-nginx/ingress-nginx", settings)
-		if err != nil {
-			utils.ErrorMessage("Failed to locate NGINX Ingress chart for upgrade: " + err.Error())
-			return err
-		}
-
-		// Load chart
-		chart, err := loader.Load(chartPath)
-		if err != nil {
-			utils.ErrorMessage("Failed to load NGINX Ingress chart for upgrade: " + err.Error())
-			return err
-		}
-
-		// Upgrade release
-		_, err = upgradeClient.Run("ingress-nginx", chart, values)
-		if err != nil {
-			utils.ErrorMessage("Failed to upgrade NGINX Ingress Controller: " + err.Error())
-			return err
-		}
-
-		utils.InfoMessage("NGINX Ingress Controller upgraded successfully")
-	}
-
-	// Ensure the IngressClass is created with the default annotation
-	err = createDefaultIngressClass(restConfig)
-	if err != nil {
-		utils.ErrorMessage("Failed to create default IngressClass: " + err.Error())
-		return err
-	}
-
-	return nil
-}
-
-// createDefaultIngressClass creates or updates the nginx IngressClass to make it default
-func createDefaultIngressClass(restConfig *rest.Config) error {
-	// Create clientset
-	clientset, err := apiv1.NewForConfig(restConfig)
-	if err != nil {
-		return err
-	}
-
-	// Create API extensions client for IngressClass
-	_, err = apiextclientset.NewForConfig(restConfig)
-	if err != nil {
-		return err
-	}
-
-	// Define IngressClass
-	ingressClass := &networkingv1.IngressClass{
-		ObjectMeta: v1.ObjectMeta{
-			Name: "nginx",
-			Annotations: map[string]string{
-				"ingressclass.kubernetes.io/is-default-class": "true",
-			},
-		},
-		Spec: networkingv1.IngressClassSpec{
-			Controller: "k8s.io/ingress-nginx",
-		},
-	}
-
-	// Try to get existing IngressClass
-	existingIC, err := clientset.NetworkingV1().IngressClasses().Get(context.TODO(), "nginx", v1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			// Create new IngressClass
-			_, err = clientset.NetworkingV1().IngressClasses().Create(context.TODO(), ingressClass, v1.CreateOptions{})
-			if err != nil {
-				return err
-			}
-			utils.InfoMessage("Default IngressClass 'nginx' created")
-		} else {
-			return err
-		}
-	} else {
-		// Update existing IngressClass
-		existingIC.ObjectMeta.Annotations["ingressclass.kubernetes.io/is-default-class"] = "true"
-		_, err = clientset.NetworkingV1().IngressClasses().Update(context.TODO(), existingIC, v1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
-		utils.InfoMessage("Existing IngressClass 'nginx' updated to be default")
+		utils.InfoMessage("NGINX Ingress Controller already installed")
 	}
 
 	return nil

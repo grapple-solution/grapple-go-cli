@@ -26,7 +26,7 @@ func init() {
 	CreateCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	CreateCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
 	CreateCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
-	CreateCmd.Flags().StringVar(&applications, "applications", "traefik2-nodeport,civo-cluster-autoscaler,metrics-server", "Applications to install")
+	CreateCmd.Flags().StringVar(&applications, "applications", "civo-cluster-autoscaler,metrics-server", "Applications to install")
 	CreateCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes (default: 3)")
 	CreateCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size (default: g4s.kube.medium)")
 	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
@@ -144,6 +144,8 @@ func checkClusterExists(client *civogo.Client, name string) (bool, error) {
 
 // Create a new Civo cluster
 func createCivoCluster(client *civogo.Client) (*civogo.KubernetesCluster, error) {
+
+	applications = fmt.Sprintf("-traefik2-nodeport,%s", applications)
 	config := &civogo.KubernetesClusterConfig{
 		Name:            clusterName,
 		NumTargetNodes:  nodes,
