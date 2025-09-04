@@ -15,11 +15,12 @@ import (
 // Command-line flags
 var (
 	// Cluster creation flags
-	targetPlatform string
-	clusterName    string
-	applications   string
-	nodes          int
-	size           string
+	targetPlatform     string
+	clusterName        string
+	applications       string
+	removeApplications string
+	nodes              int
+	size               string
 
 	// Common flags
 	autoConfirm       bool
