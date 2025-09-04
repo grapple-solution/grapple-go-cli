@@ -23,7 +23,7 @@ func init() {
 	CreateInstallCmd.Flags().StringVar(&civoRegion, "civo-region", "", "Civo region")
 	CreateInstallCmd.Flags().StringVar(&civoEmailAddress, "civo-email-address", "", "Civo email address")
 	CreateInstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
-	CreateInstallCmd.Flags().StringVar(&applications, "applications", "traefik2-nodeport,civo-cluster-autoscaler,metrics-server", "Applications to install")
+	CreateInstallCmd.Flags().StringVar(&applications, "applications", "civo-cluster-autoscaler,metrics-server", "Applications to install")
 	CreateInstallCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes")
 	CreateInstallCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size")
 
