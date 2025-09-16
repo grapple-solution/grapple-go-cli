@@ -108,9 +108,17 @@ func connectToCluster(cmd *cobra.Command, args []string) error {
 
 	// Configure kubectl for the cluster
 	utils.InfoMessage("Configuring kubectl for the cluster...")
-	_, err = configureKubeConfig(targetCluster.KubeConfig)
+	for i := 0; i < 3; i++ {
+		_, err = configureKubeConfig(targetCluster.KubeConfig)
+		if err == nil {
+			break
+		}
+		if i < 2 {
+			utils.InfoMessage(fmt.Sprintf("Retry %d/3: Failed to configure kubectl, retrying...", i+1))
+		}
+	}
 	if err != nil {
-		utils.ErrorMessage(fmt.Sprintf("Failed to configure kubectl for cluster '%s': %v", targetCluster.Name, err))
+		utils.ErrorMessage(fmt.Sprintf("Failed to configure kubectl for cluster '%s' after 3 retries: %v", targetCluster.Name, err))
 		return err
 	}
 
