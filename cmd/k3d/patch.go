@@ -248,7 +248,7 @@ func configureDNSForLinux() error {
 
 	// Ensure both nameservers are present using the helper
 	// Use custom port for dnsmasq to avoid port conflicts
-	if err := checkAndAddLineToFile(resolvPath, "nameserver "+localDNSServer+":"+dnsmasqPort); err != nil {
+	if err := checkAndAddLineToFile(resolvPath, "nameserver "+clusterIP); err != nil {
 		return err
 	}
 	if err := checkAndAddLineToFile(resolvPath, "nameserver "+googleDNSServer); err != nil {
