@@ -243,10 +243,12 @@ func configureDNSForLinux() error {
 	googleDNSServer := "8.8.8.8"
 	googleAltDNSServer := "8.8.4.4"
 	dnsDomain := "grpl-k3d.dev"
+	// Use a non-privileged/custom port to avoid conflicts on :53
 	dnsmasqPort := "5353"
 
 	// Ensure both nameservers are present using the helper
-	if err := checkAndAddLineToFile(resolvPath, "nameserver "+localDNSServer); err != nil {
+	// Use custom port for dnsmasq to avoid port conflicts
+	if err := checkAndAddLineToFile(resolvPath, "nameserver "+localDNSServer+":"+dnsmasqPort); err != nil {
 		return err
 	}
 	if err := checkAndAddLineToFile(resolvPath, "nameserver "+googleDNSServer); err != nil {

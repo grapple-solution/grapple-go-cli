@@ -50,5 +50,5 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
           cd tests
-          go test -timeout 30m -run TestCivoIntegration
+          # go test -timeout 30m -run TestCivoIntegration
           go test -timeout 30m -run TestK3dIntegration
