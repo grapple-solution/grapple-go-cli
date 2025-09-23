@@ -243,6 +243,7 @@ func configureDNSForLinux() error {
 	googleDNSServer := "8.8.8.8"
 	googleAltDNSServer := "8.8.4.4"
 	dnsDomain := "grpl-k3d.dev"
+	dnsmasqPort := "5353"
 
 	// Ensure both nameservers are present using the helper
 	if err := checkAndAddLineToFile(resolvPath, "nameserver "+localDNSServer); err != nil {
@@ -257,6 +258,7 @@ func configureDNSForLinux() error {
 	dnsmasqLine2 := "server=" + googleDNSServer
 	dnsmasqLine3 := "server=" + googleAltDNSServer
 	dnsmasqLine4 := "address=/" + dnsDomain + "/" + localDNSServer
+	dnsmasqLine5 := "port=" + dnsmasqPort
 
 	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine1); err != nil {
 		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
@@ -268,6 +270,9 @@ func configureDNSForLinux() error {
 		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
 	}
 	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine4); err != nil {
+		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
+	}
+	if err := checkAndAddLineToFile(dnsmasqPath, dnsmasqLine5); err != nil {
 		return fmt.Errorf("failed to update dnsmasq.conf: %w", err)
 	}
 
