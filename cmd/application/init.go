@@ -365,9 +365,9 @@ func updateReadme() error {
 func printNextSteps() {
 	utils.InfoMessage("What's Next?")
 	utils.InfoMessage(fmt.Sprintf("1. cd %s", projectName))
-	utils.InfoMessage("2. Run 'grpl dev help' to see available commands")
-	utils.InfoMessage("3. Run 'grpl dev ns <namespace>' to set up your namespace")
-	utils.InfoMessage("4. Run 'grpl dev' to start the project")
+	utils.InfoMessage("2. Run 'grapple dev -h' to see available commands")
+	utils.InfoMessage("3. Run 'grapple dev ns <namespace>' to set up your namespace")
+	utils.InfoMessage("4. Run 'grapple dev' to start the project")
 }
 
 func getGitHubToken() error {

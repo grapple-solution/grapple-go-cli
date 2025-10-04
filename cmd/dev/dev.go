@@ -20,9 +20,9 @@ var DevCmd = &cobra.Command{
 	Aliases: []string{"d"},
 	Short:   "Development commands for Grapple",
 	Long: `Development commands for Grapple including:
-- devspace dev: Start development environment
-- devspace ns: Set namespace
-- devspace enter [grapi|gruim]: Enter container`,
+- grapple dev: Start development environment
+- grapple dev ns: Set namespace
+- grapple dev enter [grapi|gruim]: Enter container`,
 	RunE: runDev,
 }
 

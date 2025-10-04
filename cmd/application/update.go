@@ -32,6 +32,7 @@ This command checks for and applies updates to configuration files and documenta
 func init() {
 	UpdateCmd.Flags().StringVarP(&grappleTemplate, "grapple-template", "", "", "Template repository to use")
 	UpdateCmd.Flags().StringVarP(&githubToken, "github-token", "", "", "GitHub token for authentication")
+	UpdateCmd.Flags().BoolVarP(&autoConfirm, "auto-confirm", "", false, "Automatically confirm all prompts")
 }
 
 func updateApplication(cmd *cobra.Command, args []string) error {
@@ -71,7 +72,7 @@ func updateApplication(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := getTemplateRepo(); err != nil {
+	if err := getTemplateRepoFromGit(); err != nil {
 		return err
 	}
 
@@ -87,7 +88,7 @@ func updateApplication(cmd *cobra.Command, args []string) error {
 func validateGrappleTemplate() error {
 	chartPath := "./chart/Chart.yaml"
 	if _, err := os.Stat(chartPath); os.IsNotExist(err) {
-		return fmt.Errorf("this is not a grapple template. Either move into an existing grapple-template dir or run 'grpl app init' to create a new grapple-template")
+		return fmt.Errorf("this is not a grapple template. Either move into an existing grapple-template dir or run 'grapple app init' to create a new grapple-template")
 	}
 
 	content, err := os.ReadFile(chartPath)
@@ -96,18 +97,93 @@ func validateGrappleTemplate() error {
 	}
 
 	if !strings.Contains(string(content), "dependencies:") || !strings.Contains(string(content), "name: gras-deploy") {
-		return fmt.Errorf("this is not a grapple template. Either move into an existing grapple-template dir or run 'grpl app init' to create a new grapple-template")
+		return fmt.Errorf("this is not a grapple template. Either move into an existing grapple-template dir or run 'grapple app init' to create a new grapple-template")
 	}
 
 	utils.InfoMessage("Inside a grapple-template directory")
 	return nil
 }
 
-func getTemplateRepo() error {
+func getTemplateRepoFromGit() error {
+	// If template is already specified via flag, use it
+	if grappleTemplate != "" {
+		utils.InfoMessage(fmt.Sprintf("Using specified template: %s", grappleTemplate))
+		return nil
+	}
+
+	// Try to get template from existing git remotes
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		return fmt.Errorf("failed to open git repository: %w", err)
+	}
+
+	remotes, err := repo.Remotes()
+	if err != nil {
+		return fmt.Errorf("failed to get git remotes: %w", err)
+	}
+
+	// Check for existing template remote
+	for _, remote := range remotes {
+		if remote.Config().Name == "template" {
+			urls := remote.Config().URLs
+			if len(urls) > 0 {
+				url := urls[0]
+				// Extract owner/repo from GitHub URL
+				if strings.Contains(url, "github.com") {
+					// Handle both https://github.com/owner/repo.git and git@github.com:owner/repo.git
+					url = strings.TrimSuffix(url, ".git")
+					if strings.HasPrefix(url, "https://github.com/") {
+						grappleTemplate = strings.TrimPrefix(url, "https://github.com/")
+					} else if strings.HasPrefix(url, "git@github.com:") {
+						grappleTemplate = strings.TrimPrefix(url, "git@github.com:")
+					}
+
+					if grappleTemplate != "" {
+						utils.InfoMessage(fmt.Sprintf("Found existing template remote: %s", grappleTemplate))
+						return nil
+					}
+				}
+			}
+		}
+	}
+
+	// Check origin remote for template patterns
+	for _, remote := range remotes {
+		if remote.Config().Name == "origin" {
+			urls := remote.Config().URLs
+			if len(urls) > 0 {
+				url := urls[0]
+				if strings.Contains(url, "github.com") {
+					url = strings.TrimSuffix(url, ".git")
+					var repoPath string
+					if strings.HasPrefix(url, "https://github.com/") {
+						repoPath = strings.TrimPrefix(url, "https://github.com/")
+					} else if strings.HasPrefix(url, "git@github.com:") {
+						repoPath = strings.TrimPrefix(url, "git@github.com:")
+					}
+
+					// Check if this looks like it was created from a grapple template
+					if strings.Contains(repoPath, "grapple") {
+						// Try to determine template type from repository structure
+						if err := determineTemplateFromStructure(); err == nil {
+							utils.InfoMessage(fmt.Sprintf("Auto-detected template from project structure: %s", grappleTemplate))
+							return nil
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to structure-based detection
+	return determineTemplateFromStructure()
+}
+
+func determineTemplateFromStructure() error {
 	// Check if gruim folder exists
 	gruimPath := "./gruim"
 	if _, err := os.Stat(gruimPath); os.IsNotExist(err) {
-		return fmt.Errorf("gruim folder not found")
+		return fmt.Errorf("gruim folder not found - cannot determine template type")
 	}
 
 	// Check for .svelte files in gruim folder
@@ -132,8 +208,7 @@ func getTemplateRepo() error {
 		grappleTemplate = "grapple-solution/grapple-react-template"
 	}
 
-	utils.InfoMessage(fmt.Sprintf("grappleTemplate: %s", grappleTemplate))
-
+	utils.InfoMessage(fmt.Sprintf("Auto-detected template from project structure: %s", grappleTemplate))
 	return nil
 }
 
@@ -309,6 +384,19 @@ func syncDifferences() error {
 		return nil
 	}
 
+	// If auto-confirm is enabled, apply all changes
+	if autoConfirm {
+		utils.InfoMessage("Auto-confirm enabled. Applying all differences...")
+		for _, file := range diffFiles {
+			utils.InfoMessage(fmt.Sprintf("Applying differences for %s...", file))
+			if err := applyFileChanges(file, templateFiles[file]); err != nil {
+				return fmt.Errorf("failed to apply changes to %s: %w", file, err)
+			}
+		}
+		utils.SuccessMessage("All differences applied")
+		return nil
+	}
+
 	// Let user choose files to update
 	choices := append([]string{"Exit", "Apply All"}, diffFiles...)
 	selected, err := utils.PromptSelect("Select a file to view and apply the differences", choices)
@@ -370,15 +458,17 @@ func applyFileChanges(filePath string, templateContent string) error {
 		fmt.Println(templateContent)
 	}
 
-	// Ask for confirmation
-	confirm, err := utils.PromptConfirm("Would you like to apply these changes?")
-	if err != nil {
-		return fmt.Errorf("failed to get confirmation: %w", err)
-	}
+	// Ask for confirmation unless auto-confirm is enabled
+	if !autoConfirm {
+		confirm, err := utils.PromptConfirm("Would you like to apply these changes?")
+		if err != nil {
+			return fmt.Errorf("failed to get confirmation: %w", err)
+		}
 
-	if !confirm {
-		utils.InfoMessage("Changes not applied")
-		return nil
+		if !confirm {
+			utils.InfoMessage("Changes not applied")
+			return nil
+		}
 	}
 
 	// Ensure directory exists
