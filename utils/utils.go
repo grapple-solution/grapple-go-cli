@@ -582,7 +582,7 @@ func UpsertDNSRecord(restConfig *rest.Config, apiURL, completeDomain, code, exte
 				Containers: []corev1.Container{
 					{
 						Name:  "dns-upsert",
-						Image: "zaialpha/grpl-route53-upsert:latest",
+						Image: "grpl/grpl-route53-upsert:latest",
 						Env: []corev1.EnvVar{
 							{Name: "HOSTED_ZONE_ID", Value: hostedZoneID},
 							{Name: "GRAPPLE_DNS", Value: "*." + completeDomain},
