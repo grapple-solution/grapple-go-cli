@@ -48,7 +48,7 @@ This command will:
   4. Wait for the deployment to become ready
 
 Example:
-  grpl resource deploy --name my-app --namespace default`,
+  grapple resource deploy --name my-app --namespace default`,
 	RunE: runDeploy,
 }
 

@@ -263,11 +263,6 @@ The AI assistant can help you:
 
 func init() {
 	AiCmd.Flags().StringP("provider", "p", "", "Force specific AI provider (anthropic, openai, gemini)")
-	AiCmd.Example = `  # Start interactive AI session
-  grpl ai
-  
-  # Force specific provider
-  grpl ai --provider anthropic`
 }
 
 func NewMCPClient(serverURL string) *MCPClient {

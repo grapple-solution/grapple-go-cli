@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: code-verification-server
-        image: zaialpha/code-verification:latest
+        image: grpl/code-verification:latest
         ports:
         - containerPort: 8080
 ---

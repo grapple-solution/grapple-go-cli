@@ -4,8 +4,6 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package application
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -16,9 +14,6 @@ var ApplicationCmd = &cobra.Command{
 	Short:   "Initialize and manage Grapple applications",
 	Long: `The application command allows you to initialize and manage Grapple applications.
 It provides functionality to create new projects from templates and set up development environments.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("application called")
-	},
 }
 
 func init() {
