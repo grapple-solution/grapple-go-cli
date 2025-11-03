@@ -33,6 +33,23 @@ func init() {
 	RemoveCmd.Flags().BoolVarP(&skipConfirmation, "yes", "y", false, "Skip confirmation prompt before removing cluster")
 }
 
+func isProtectedCluster(clusterName string) bool {
+	protectedClusters := []string{
+		"grpl-prd",
+		"grpl-uat",
+		"grpl-nop",
+		"grpl-dev",
+		"jcs-prd",
+	}
+
+	for _, protected := range protectedClusters {
+		if clusterName == protected {
+			return true
+		}
+	}
+	return false
+}
+
 func getClusterDetailsFromConfig(clientset *kubernetes.Clientset) bool {
 
 	// Try to get grsf-config secret
@@ -97,7 +114,14 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	civoAPIKey := getCivoAPIKey()
 
 	if autoConfirm {
-		if !getClusterDetailsFromConfig(clientset) {
+		if getClusterDetailsFromConfig(clientset) {
+			// Check if the currently connected cluster is protected
+			if isProtectedCluster(clusterName) {
+				utils.ErrorMessage(fmt.Sprintf("You are currently connected to cluster '%s', which is protected and cannot be removed.", clusterName))
+				utils.ErrorMessage("Please switch to another cluster or disconnect from this cluster before attempting to remove a different cluster.")
+				return fmt.Errorf("protected cluster '%s' cannot be removed while connected", clusterName)
+			}
+		} else {
 			utils.InfoMessage("Unable to find cluster details in grsf-config, moving to prompt for region and cluster name")
 		}
 	}
@@ -156,6 +180,13 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	if targetCluster == nil {
 		utils.ErrorMessage(fmt.Sprintf("Cluster %s not found in region %s", clusterName, civoRegion))
 		return fmt.Errorf("cluster %s not found in region %s", clusterName, civoRegion)
+	}
+
+	// Check if cluster is protected from deletion
+	if isProtectedCluster(clusterName) {
+		utils.ErrorMessage(fmt.Sprintf("Cluster '%s' is protected and cannot be removed.", clusterName))
+		utils.ErrorMessage("Protected clusters include: grpl-prd, grpl-uat, grpl-nop, grpl-dev, jcs-prd")
+		return fmt.Errorf("cluster '%s' is protected and cannot be removed", clusterName)
 	}
 
 	// Ask for confirmation unless --yes flag is set
