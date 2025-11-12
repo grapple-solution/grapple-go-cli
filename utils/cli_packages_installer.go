@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 const (
@@ -46,7 +47,11 @@ func init() {
 
 func displayPackageInstallerMessage() {
 	if !messagedPrinted {
-		InfoMessage(fmt.Sprintf("PACKAGE_MANAGER not set, will be using detected '%s'. You can set PACKAGE_MANAGER env var to: brew, apt, dnf, or choco for specific package manager. Note: The package manager you specify must be installed on your system.", PackageManager))
+		if os.Getenv("PACKAGE_MANAGER") != "" {
+			InfoMessage(fmt.Sprintf("PACKAGE_MANAGER is set to '%s'.", PackageManager))
+		} else {
+			InfoMessage(fmt.Sprintf("PACKAGE_MANAGER not set, will be using detected '%s'. You can set PACKAGE_MANAGER env var to: brew, apt, dnf, or choco for specific package manager. Note: The package manager you specify must be installed on your system.", PackageManager))
+		}
 		messagedPrinted = true
 	}
 }
@@ -336,5 +341,195 @@ func InstallMkcert() error {
 	}
 
 	SuccessMessage("Mkcert installed successfully")
+	return nil
+}
+
+func InstallStern() error {
+	if _, err := exec.LookPath("stern"); err == nil {
+		return nil // Already installed
+	}
+
+	defer StopSpinner()
+
+	displayPackageInstallerMessage()
+	InfoMessage("Installing Stern CLI...")
+	var cmd *exec.Cmd
+
+	switch PackageManager {
+	case brewPackageManager:
+		cmd = exec.Command(brewPackageManager, "install", "stern")
+		StartSpinner("Installing Stern CLI, It will take a few minutes...")
+		if err := cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing stern: %v", err))
+			return fmt.Errorf("error installing stern: %w", err)
+		}
+		StopSpinner()
+	case aptPackageManager, dnfPackageManager:
+		// Determine architecture
+		var arch string
+		if runtime.GOARCH == "arm64" {
+			arch = "arm64"
+		} else {
+			arch = "amd64"
+		}
+
+		// Get the latest release download URL from GitHub API
+		apiURL := "https://api.github.com/repos/stern/stern/releases/latest"
+		apiCmd := exec.Command("curl", "-s", apiURL)
+		apiOutput, err := apiCmd.Output()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Error fetching stern release info: %v", err))
+			return fmt.Errorf("error fetching stern release info: %w", err)
+		}
+
+		// Parse JSON to find the correct asset URL
+		// We're looking for a line like: "browser_download_url": "https://github.com/stern/stern/releases/download/v1.33.1/stern_1.33.1_linux_amd64.tar.gz"
+		pattern := fmt.Sprintf(`stern_.*_linux_%s\.tar\.gz`, arch)
+		grepCmd := exec.Command("grep", "-o", fmt.Sprintf(`https://[^"]*%s`, pattern))
+		grepCmd.Stdin = strings.NewReader(string(apiOutput))
+		downloadURLBytes, err := grepCmd.Output()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Error finding stern download URL: %v", err))
+			return fmt.Errorf("error finding stern download URL: %w", err)
+		}
+
+		downloadURL := strings.TrimSpace(string(downloadURLBytes))
+		if downloadURL == "" {
+			ErrorMessage("Could not find stern download URL for your architecture")
+			return fmt.Errorf("could not find stern download URL for architecture: %s", arch)
+		}
+
+		// Extract filename from URL
+		parts := strings.Split(downloadURL, "/")
+		tarballName := parts[len(parts)-1]
+
+		// Download stern tarball
+		downloadCmd := exec.Command("curl", "-L", "-o", tarballName, downloadURL)
+		downloadCmd.Stdout = os.Stdout
+		downloadCmd.Stderr = os.Stderr
+		StartSpinner("Downloading Stern CLI, It will take a few minutes...")
+		if err := downloadCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error downloading stern: %v", err))
+			return fmt.Errorf("error downloading stern: %w", err)
+		}
+		StopSpinner()
+
+		// Extract tarball
+		extractCmd := exec.Command("tar", "-xzf", tarballName, "stern")
+		extractCmd.Stdout = os.Stdout
+		extractCmd.Stderr = os.Stderr
+		StartSpinner("Extracting Stern CLI...")
+		if err := extractCmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error extracting stern: %v", err))
+			// Clean up downloaded tarball
+			os.Remove(tarballName)
+			return fmt.Errorf("error extracting stern: %w", err)
+		}
+		StopSpinner()
+
+		// Install binary to /usr/local/bin with correct permissions
+		InfoMessage("Installing Stern CLI to /usr/local/bin (requires sudo)...")
+		cmd = exec.Command("sudo", "install", "-c", "-m", "0755", "stern", "/usr/local/bin")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		if err := cmd.Run(); err != nil {
+			ErrorMessage(fmt.Sprintf("Error installing stern: %v", err))
+			// Clean up
+			os.Remove(tarballName)
+			os.Remove("stern")
+			return fmt.Errorf("error installing stern: %w", err)
+		}
+
+		// Clean up downloaded files
+		os.Remove(tarballName)
+		os.Remove("stern")
+	case chocoPackageManager:
+		// Get the latest release download URL from GitHub API
+		apiURL := "https://api.github.com/repos/stern/stern/releases/latest"
+		apiCmd := exec.Command("powershell", "-Command",
+			fmt.Sprintf("Invoke-RestMethod -Uri %s", apiURL))
+		apiOutput, err := apiCmd.Output()
+		if err != nil {
+			ErrorMessage(fmt.Sprintf("Error fetching stern release info: %v", err))
+			return fmt.Errorf("error fetching stern release info: %w", err)
+		}
+
+		// Parse JSON to find the correct asset URL for Windows
+		pattern := `stern_.*_windows_amd64\.zip`
+		grepCmd := exec.Command("powershell", "-Command",
+			fmt.Sprintf("$input | Select-String -Pattern '%s' -AllMatches | ForEach-Object { $_.Matches.Value }", pattern))
+		grepCmd.Stdin = strings.NewReader(string(apiOutput))
+		zipNameBytes, err := grepCmd.Output()
+		if err != nil || len(zipNameBytes) == 0 {
+			// Fallback to a simple pattern search
+			if strings.Contains(string(apiOutput), "windows_amd64.zip") {
+				// Extract URL manually
+				lines := strings.Split(string(apiOutput), "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "browser_download_url") && strings.Contains(line, "windows_amd64.zip") {
+						// Extract URL from the line
+						start := strings.Index(line, "https://")
+						if start != -1 {
+							end := strings.Index(line[start:], "\"")
+							if end != -1 {
+								downloadURL := line[start : start+end]
+								parts := strings.Split(downloadURL, "/")
+								zipName := parts[len(parts)-1]
+
+								// Download stern zip
+								downloadCmd := exec.Command("powershell", "-Command",
+									fmt.Sprintf("Invoke-WebRequest -Uri '%s' -OutFile %s", downloadURL, zipName))
+								downloadCmd.Stdout = os.Stdout
+								downloadCmd.Stderr = os.Stderr
+								StartSpinner("Downloading Stern CLI, It will take a few minutes...")
+								if err := downloadCmd.Run(); err != nil {
+									ErrorMessage(fmt.Sprintf("Error downloading stern: %v", err))
+									return fmt.Errorf("error downloading stern: %w", err)
+								}
+								StopSpinner()
+
+								// Extract zip
+								extractCmd := exec.Command("powershell", "-Command",
+									fmt.Sprintf("Expand-Archive -Force %s -DestinationPath .", zipName))
+								extractCmd.Stdout = os.Stdout
+								extractCmd.Stderr = os.Stderr
+								StartSpinner("Extracting Stern CLI...")
+								if err := extractCmd.Run(); err != nil {
+									ErrorMessage(fmt.Sprintf("Error extracting stern: %v", err))
+									exec.Command("powershell", "-Command", fmt.Sprintf("Remove-Item -Force %s", zipName)).Run()
+									return fmt.Errorf("error extracting stern: %w", err)
+								}
+								StopSpinner()
+
+								// Move to Windows PATH location
+								cmd = exec.Command("powershell", "-Command",
+									"Move-Item -Force stern.exe $env:USERPROFILE\\AppData\\Local\\Microsoft\\WindowsApps\\")
+								StartSpinner("Installing Stern CLI, It will take a few minutes...")
+								if err := cmd.Run(); err != nil {
+									ErrorMessage(fmt.Sprintf("Error installing stern: %v", err))
+									exec.Command("powershell", "-Command", fmt.Sprintf("Remove-Item -Force %s", zipName)).Run()
+									exec.Command("powershell", "-Command", "Remove-Item -Force stern.exe").Run()
+									return fmt.Errorf("error installing stern: %w", err)
+								}
+								StopSpinner()
+
+								// Clean up
+								exec.Command("powershell", "-Command", fmt.Sprintf("Remove-Item -Force %s", zipName)).Run()
+								break
+							}
+						}
+					}
+				}
+			} else {
+				ErrorMessage("Could not find stern download URL for Windows")
+				return fmt.Errorf("could not find stern download URL for Windows")
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported package manager: %s", PackageManager)
+	}
+
+	SuccessMessage("Stern CLI installed successfully")
 	return nil
 }
