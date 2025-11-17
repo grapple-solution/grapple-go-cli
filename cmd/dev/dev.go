@@ -159,11 +159,46 @@ func runDevspace() error {
 }
 
 func handleNamespace(args []string) error {
-	nsArgs := []string{"use", "namespace"}
+	// If no namespace provided, show help
 	if len(args) == 0 {
-		nsArgs = append(nsArgs, "--help")
-	} else {
-		nsArgs = append(nsArgs, args...)
+		nsCmd := exec.Command("devspace", "use", "namespace", "--help")
+		nsCmd.Stdout = os.Stdout
+		nsCmd.Stderr = os.Stderr
+		if err := nsCmd.Run(); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("error running namespace command: %v", err))
+			return fmt.Errorf("error running namespace command: %w", err)
+		}
+		return nil
+	}
+
+	namespace := args[0]
+
+	// Check if namespace is longer than 10 characters
+	if len(namespace) > 10 {
+		truncatedNs := namespace[:10]
+		fmt.Printf("Warning: Namespace '%s' is longer than 10 characters.\n", namespace)
+		fmt.Printf("It will be truncated to '%s'.\n", truncatedNs)
+
+		// Prompt user for confirmation
+		confirmed, err := utils.PromptConfirm("Do you want to continue with the truncated namespace?")
+		if err != nil {
+			return fmt.Errorf("failed to get user confirmation: %w", err)
+		}
+
+		if !confirmed {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+
+		// Use truncated namespace
+		namespace = truncatedNs
+	}
+
+	nsArgs := []string{"use", "namespace", namespace}
+
+	// Add any additional args
+	if len(args) > 1 {
+		nsArgs = append(nsArgs, args[1:]...)
 	}
 
 	nsCmd := exec.Command("devspace", nsArgs...)
