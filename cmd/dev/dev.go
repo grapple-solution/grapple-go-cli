@@ -4,17 +4,14 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package dev
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // DevCmd represents the dev command
@@ -257,7 +254,6 @@ func handleEnter(container string) error {
 
 	return nil
 }
-
 func handleLogs(args []string) error {
 	// Check if --all flag is present
 	hasAllFlag := false
@@ -295,81 +291,17 @@ func handleLogs(args []string) error {
 		return nil
 	}
 
-	// Check if -c or --container is already specified
-	hasContainerFlag := false
-	for _, arg := range filteredArgs {
-		if arg == "-c" || arg == "--container" || strings.HasPrefix(arg, "-c=") || strings.HasPrefix(arg, "--container=") {
-			hasContainerFlag = true
-			break
-		}
-	}
-
-	// If container flag is not specified, prompt user to select a container
-	if !hasContainerFlag {
-		container, err := getContainerFromPrompt()
-		if err != nil {
-			return fmt.Errorf("failed to get container: %w", err)
-		}
-		// Add -c flag with selected container
-		filteredArgs = append([]string{"-c", container}, filteredArgs...)
-	}
-
-	// Pass everything to devspace logs
+	// Pass everything to devspace logs (let devspace handle container selection)
 	logsArgs := append([]string{"logs"}, filteredArgs...)
-	return runDevspaceWithArgs(logsArgs)
-}
-
-func getContainerFromPrompt() (string, error) {
-	// Get current namespace from devspace or kubectl
-	namespace, err := getCurrentNamespace()
-	if err != nil {
-		return "", fmt.Errorf("failed to get namespace: %w", err)
+	logsCmd := exec.Command("devspace", logsArgs...)
+	logsCmd.Stdin = os.Stdin // Connect stdin for interactive prompts
+	logsCmd.Stdout = os.Stdout
+	logsCmd.Stderr = os.Stderr
+	if err := logsCmd.Run(); err != nil {
+		utils.ErrorMessage(fmt.Sprintf("error running devspace logs: %v", err))
+		return fmt.Errorf("error running devspace logs: %w", err)
 	}
-
-	// Get Kubernetes clientset
-	_, clientset, err := utils.GetKubernetesConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to get Kubernetes config: %w", err)
-	}
-
-	// Get pods in the namespace
-	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), v1.ListOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	// Collect unique container names from all pods
-	containerSet := make(map[string]bool)
-	for _, pod := range pods.Items {
-		for _, container := range pod.Spec.Containers {
-			containerSet[container.Name] = true
-		}
-		// Also include init containers
-		for _, container := range pod.Spec.InitContainers {
-			containerSet[container.Name] = true
-		}
-	}
-
-	// Convert to slice and sort
-	containers := make([]string, 0, len(containerSet))
-	for container := range containerSet {
-		containers = append(containers, container)
-	}
-
-	if len(containers) == 0 {
-		return "", fmt.Errorf("no containers found in namespace %s", namespace)
-	}
-
-	// Sort containers for consistent display
-	sort.Strings(containers)
-
-	// Prompt user to select a container
-	selectedContainer, err := utils.PromptSelect("Select container", containers)
-	if err != nil {
-		return "", fmt.Errorf("failed to select container: %w", err)
-	}
-
-	return selectedContainer, nil
+	return nil
 }
 
 func getCurrentNamespace() (string, error) {
@@ -399,6 +331,7 @@ func getCurrentNamespace() (string, error) {
 
 func runDevspaceWithArgs(args []string) error {
 	devCmd := exec.Command("devspace", args...)
+	devCmd.Stdin = os.Stdin // Always connect stdin for interactive commands
 	devCmd.Stdout = os.Stdout
 	devCmd.Stderr = os.Stderr
 	if err := devCmd.Run(); err != nil {
