@@ -135,7 +135,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	var preloadImagesError error
 	go func() {
 		defer preloadImagesWg.Done()
-		if err := utils.PreloadGrappleImages(restConfig, grappleVersion); err != nil {
+		if err := utils.PreloadGrappleImages(restConfig, "0.2.8"); err != nil {
 			utils.ErrorMessage("image preload error: " + err.Error())
 			preloadImagesError = err
 		} else {
