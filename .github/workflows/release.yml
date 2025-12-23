@@ -88,6 +88,7 @@ jobs:
           gh release create "${{ env.NEW_VERSION }}" \
             --title "${{ env.NEW_VERSION }}" \
             --notes "Automated release from main branch." \
+            --target main \
             dist/*.tar.gz dist/*.zip
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
