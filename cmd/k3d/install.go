@@ -354,6 +354,18 @@ func initClientsAndConfig() (kubernetes.Interface, *rest.Config, error) {
 		return nil, nil, fmt.Errorf("failed to connect to kubernetes: %w", err)
 	}
 
+	// Get license from grsf-config secret if it exists, otherwise use "free"
+	secret, err := k8sClient.CoreV1().Secrets("grpl-system").Get(context.Background(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		grappleLicense = "free"
+	} else {
+		if licBytes, ok := secret.Data["LIC"]; !ok || len(licBytes) == 0 {
+			grappleLicense = "free"
+		} else {
+			grappleLicense = string(licBytes)
+		}
+	}
+
 	utils.InfoMessage("Successfully connected to Kubernetes cluster")
 	return k8sClient, config, nil
 }
