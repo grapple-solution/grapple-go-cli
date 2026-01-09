@@ -114,7 +114,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	grappleDNS = "grpl-k3d.dev"
 
 	if grappleVersion == "" || grappleVersion == "latest" {
-		grappleVersion = "0.3.1"
+		grappleVersion = "0.3.5"
 	}
 
 	completeDomain = grappleDNS
