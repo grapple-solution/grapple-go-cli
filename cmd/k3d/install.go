@@ -114,7 +114,7 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	grappleDNS = "grpl-k3d.dev"
 
 	if grappleVersion == "" || grappleVersion == "latest" {
-		grappleVersion = "0.3.1"
+		grappleVersion = "0.3.5"
 	}
 
 	completeDomain = grappleDNS
@@ -352,6 +352,18 @@ func initClientsAndConfig() (kubernetes.Interface, *rest.Config, error) {
 	_, err = k8sClient.Discovery().ServerVersion()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to kubernetes: %w", err)
+	}
+
+	// Get license from grsf-config secret if it exists, otherwise use "free"
+	secret, err := k8sClient.CoreV1().Secrets("grpl-system").Get(context.Background(), "grsf-config", v1.GetOptions{})
+	if err != nil {
+		grappleLicense = "free"
+	} else {
+		if licBytes, ok := secret.Data["LIC"]; !ok || len(licBytes) == 0 {
+			grappleLicense = "free"
+		} else {
+			grappleLicense = string(licBytes)
+		}
 	}
 
 	utils.InfoMessage("Successfully connected to Kubernetes cluster")
