@@ -134,7 +134,7 @@ func (g *GrapiClient) buildTools(spec map[string]interface{}) ([]map[string]inte
 					if jsonContent, ok := content["application/json"].(map[string]interface{}); ok {
 						bodySchema, _ := jsonContent["schema"].(map[string]interface{})
 						bodyProp := map[string]interface{}{
-							"type":        "OBJECT",
+							"type":        "object",
 							"description": "JSON request body with relevant fields",
 						}
 						if propsRaw, ok := bodySchema["properties"].(map[string]interface{}); ok {
@@ -149,7 +149,7 @@ func (g *GrapiClient) buildTools(spec map[string]interface{}) ([]map[string]inte
 			}
 
 			inputSchema := map[string]interface{}{
-				"type":       "OBJECT",
+				"type":       "object",
 				"properties": props,
 			}
 			if len(required) > 0 {
@@ -183,24 +183,24 @@ func (g *GrapiClient) convertProperties(props map[string]interface{}) map[string
 
 func (g *GrapiClient) convertSchema(openapiSchema map[string]interface{}) map[string]interface{} {
 	if openapiSchema == nil {
-		return map[string]interface{}{"type": "STRING"}
+		return map[string]interface{}{"type": "string"}
 	}
 
 	raw, _ := openapiSchema["type"].(string)
 	typeMap := map[string]string{
-		"integer": "INTEGER",
-		"number":  "NUMBER",
-		"boolean": "BOOLEAN",
-		"array":   "ARRAY",
-		"object":  "OBJECT",
-		"string":  "STRING",
+		"integer": "integer",
+		"number":  "number",
+		"boolean": "boolean",
+		"array":   "array",
+		"object":  "object",
+		"string":  "string",
 	}
 
 	res := map[string]interface{}{
 		"type": typeMap[raw],
 	}
 	if res["type"] == "" {
-		res["type"] = "STRING"
+		res["type"] = "string"
 	}
 
 	if desc, ok := openapiSchema["description"].(string); ok {
@@ -370,10 +370,16 @@ var GrapiAiCmd = &cobra.Command{
 			}
 		}
 
-		aiConfig, err := setupAIProvider()
+		provider, _ := cmd.Flags().GetString("provider")
+		aiConfig, err := setupAIProvider(provider)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Error setting up AI provider: %v", err))
 			return
+		}
+
+		model, _ := cmd.Flags().GetString("model")
+		if model != "" {
+			aiConfig.Model = model
 		}
 
 		grapiClient := NewGrapiClient(serverURL)
@@ -436,4 +442,6 @@ var GrapiAiCmd = &cobra.Command{
 
 func init() {
 	GrapiAiCmd.Flags().String("url", "", "Grapi server URL (e.g. http://localhost:3333)")
+	GrapiAiCmd.Flags().StringP("model", "m", "", "AI model to use (overrides defaults and env vars)")
+	GrapiAiCmd.Flags().StringP("provider", "p", "", "AI provider to use (anthropic, openai, gemini)")
 }

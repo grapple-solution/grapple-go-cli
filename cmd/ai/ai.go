@@ -191,10 +191,16 @@ The AI assistant can help you:
 - Troubleshoot configuration issues
 - Generate complete application manifests`,
 	Run: func(cmd *cobra.Command, args []string) {
-		config, err := setupAIProvider()
+		provider, _ := cmd.Flags().GetString("provider")
+		config, err := setupAIProvider(provider)
 		if err != nil {
 			utils.ErrorMessage(fmt.Sprintf("Error setting up AI provider: %v", err))
 			return
+		}
+
+		model, _ := cmd.Flags().GetString("model")
+		if model != "" {
+			config.Model = model
 		}
 
 		mcpClient := NewRemoteMCPClient(MCPServerURL)
@@ -280,5 +286,6 @@ The AI assistant can help you:
 
 func init() {
 	AiCmd.Flags().StringP("provider", "p", "", "Force specific AI provider (anthropic, openai, gemini)")
+	AiCmd.Flags().StringP("model", "m", "", "AI model to use (overrides defaults and env vars)")
 	AiCmd.AddCommand(GrapiAiCmd)
 }

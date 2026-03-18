@@ -25,6 +25,7 @@ type ToolProvider interface {
 type AIConfig struct {
 	Provider string `json:"provider"`
 	APIKey   string `json:"api_key"`
+	Model    string `json:"model"`
 }
 
 type AISession interface {
@@ -165,49 +166,79 @@ func loadAIConfig() (*AIConfig, error) {
 	return &config, nil
 }
 
-func setupAIProvider() (*AIConfig, error) {
+func setupAIProvider(forcedProvider string) (*AIConfig, error) {
 	utils.InfoMessage("Setting up AI provider for Grapple CLI")
 	fmt.Println()
 
 	existingConfig, err := loadAIConfig()
 	if err == nil && existingConfig.Provider != "" && existingConfig.APIKey != "" {
-		utils.InfoMessage(fmt.Sprintf("Found existing configuration for %s", existingConfig.Provider))
-		useExisting, err := utils.PromptInput("Use existing configuration? (y/n)", "y", "^[yYnN]$")
-		if err != nil {
-			return nil, err
+		// If a provider was forced via flag
+		if forcedProvider != "" {
+			if existingConfig.Provider == forcedProvider {
+				utils.InfoMessage(fmt.Sprintf("Found existing configuration for %s", existingConfig.Provider))
+				useExisting, err := utils.PromptInput("Use existing configuration? (y/n)", "y", "^[yYnN]$")
+				if err != nil {
+					return nil, err
+				}
+				if strings.ToLower(useExisting) == "y" {
+					return existingConfig, nil
+				}
+			}
+			// If not using existing or forced different provider, fall through and ask for API key for forcedProvider
+		} else {
+			// No forced provider, ask to reuse existing
+			utils.InfoMessage(fmt.Sprintf("Found existing configuration for %s", existingConfig.Provider))
+			useExisting, err := utils.PromptInput("Use existing configuration? (y/n)", "y", "^[yYnN]$")
+			if err != nil {
+				return nil, err
+			}
+
+			if strings.ToLower(useExisting) == "y" {
+				return existingConfig, nil
+			}
 		}
-
-		if strings.ToLower(useExisting) == "y" {
-			return existingConfig, nil
-		}
-	}
-
-	providers := []string{
-		"Anthropic (Claude)",
-		"OpenAI (GPT)",
-		"Google (Gemini)",
-	}
-
-	providerChoice, err := utils.PromptSelect("Select AI provider", providers)
-	if err != nil {
-		return nil, err
 	}
 
 	var provider string
 	var apiKeyPrompt string
 
-	switch providerChoice {
-	case "Anthropic (Claude)":
-		provider = "anthropic"
-		apiKeyPrompt = "Enter your Anthropic API key"
-	case "OpenAI (GPT)":
-		provider = "openai"
-		apiKeyPrompt = "Enter your OpenAI API key"
-	case "Google (Gemini)":
-		provider = "gemini"
-		apiKeyPrompt = "Enter your Google AI API key"
-	default:
-		return nil, fmt.Errorf("invalid provider choice")
+	if forcedProvider != "" {
+		provider = forcedProvider
+		switch provider {
+		case "anthropic":
+			apiKeyPrompt = "Enter your Anthropic API key"
+		case "openai":
+			apiKeyPrompt = "Enter your OpenAI API key"
+		case "gemini":
+			apiKeyPrompt = "Enter your Google AI API key"
+		default:
+			return nil, fmt.Errorf("invalid provider: %s", forcedProvider)
+		}
+	} else {
+		providers := []string{
+			"Anthropic (Claude)",
+			"OpenAI (GPT)",
+			"Google (Gemini)",
+		}
+
+		providerChoice, err := utils.PromptSelect("Select AI provider", providers)
+		if err != nil {
+			return nil, err
+		}
+
+		switch providerChoice {
+		case "Anthropic (Claude)":
+			provider = "anthropic"
+			apiKeyPrompt = "Enter your Anthropic API key"
+		case "OpenAI (GPT)":
+			provider = "openai"
+			apiKeyPrompt = "Enter your OpenAI API key"
+		case "Google (Gemini)":
+			provider = "gemini"
+			apiKeyPrompt = "Enter your Google AI API key"
+		default:
+			return nil, fmt.Errorf("invalid provider choice")
+		}
 	}
 
 	fmt.Println()
@@ -237,21 +268,30 @@ func setupAIProvider() (*AIConfig, error) {
 func createAISession(config *AIConfig, provider ToolProvider) (AISession, error) {
 	switch config.Provider {
 	case "anthropic":
-		model := getEnvModel("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+		model := config.Model
+		if model == "" {
+			model = getEnvModel("CLAUDE_MODEL", "claude-3-5-haiku-latest")
+		}
 		return &ClaudeSession{
 			APIKey:       config.APIKey,
 			Model:        model,
 			ToolProvider: provider,
 		}, nil
 	case "openai":
-		model := getEnvModel("OPENAI_MODEL", "gpt-4o")
+		model := config.Model
+		if model == "" {
+			model = getEnvModel("OPENAI_MODEL", "gpt-4o-mini")
+		}
 		return &OpenAISession{
 			APIKey:       config.APIKey,
 			Model:        model,
 			ToolProvider: provider,
 		}, nil
 	case "gemini":
-		model := getEnvModel("GEMINI_MODEL", "gemini-2.5-flash")
+		model := config.Model
+		if model == "" {
+			model = getEnvModel("GEMINI_MODEL", "gemini-2.5-flash")
+		}
 		return &GeminiSession{
 			APIKey:       config.APIKey,
 			Model:        model,
