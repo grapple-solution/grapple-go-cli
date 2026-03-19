@@ -141,26 +141,42 @@ func (g *GrapiClient) GetAvailablePrompts() ([]map[string]interface{}, error) {
 }
 
 func (g *GrapiClient) GetAvailableTools() ([]map[string]interface{}, error) {
-	res, err := g.mcpRequest("tools/list", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch tools: %v", err)
-	}
+	var allTools []map[string]interface{}
+	cursor := ""
 
-	toolsIface, ok := res["tools"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid MCP tools response format")
-	}
-
-	tools := []map[string]interface{}{}
-	for _, t := range toolsIface {
-		if toolMap, ok := t.(map[string]interface{}); ok {
-			if inputSchema, ok := toolMap["inputSchema"].(map[string]interface{}); ok {
-				sanitizeSchema(inputSchema)
-			}
-			tools = append(tools, toolMap)
+	for {
+		params := map[string]interface{}{}
+		if cursor != "" {
+			params["cursor"] = cursor
 		}
+
+		res, err := g.mcpRequest("tools/list", params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch tools: %v", err)
+		}
+
+		toolsIface, ok := res["tools"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid MCP tools response format")
+		}
+
+		for _, t := range toolsIface {
+			if toolMap, ok := t.(map[string]interface{}); ok {
+				if inputSchema, ok := toolMap["inputSchema"].(map[string]interface{}); ok {
+					sanitizeSchema(inputSchema)
+				}
+				allTools = append(allTools, toolMap)
+			}
+		}
+
+		next, ok := res["nextCursor"].(string)
+		if !ok || next == "" {
+			break
+		}
+		cursor = next
 	}
-	return tools, nil
+
+	return allTools, nil
 }
 
 func sanitizeSchema(schema map[string]interface{}) {
@@ -198,19 +214,44 @@ func (g *GrapiClient) CallTool(fnName string, args map[string]interface{}) (stri
 		return "", fmt.Errorf("no content in tool response")
 	}
 
-	firstContent, ok := contentIface[0].(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid content format")
+	var resultParts []string
+
+	for _, item := range contentIface {
+		part, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		switch part["type"] {
+		case "text":
+			if text, _ := part["text"].(string); text != "" {
+				resultParts = append(resultParts, text)
+			}
+		case "resource_link":
+			if uri, _ := part["uri"].(string); uri != "" {
+				desc, _ := part["description"].(string)
+				resultParts = append(resultParts, fmt.Sprintf("Resource Link: %s (%s)", uri, desc))
+			}
+		}
 	}
 
-	text, ok := firstContent["text"].(string)
-	if !ok {
-		// Fallback: dump the JSON response directly
-		b, _ := json.Marshal(res)
+	// Check for tool execution errors (MCP spec 2025-11-25)
+	if isError, _ := res["isError"].(bool); isError {
+		return "", fmt.Errorf("tool error: %s", strings.Join(resultParts, "\n"))
+	}
+
+	if len(resultParts) == 0 {
+		// Fallback: use structuredContent if text is missing
+		if sc, ok := res["structuredContent"]; ok {
+			b, _ := json.MarshalIndent(sc, "", "  ")
+			return string(b), nil
+		}
+		// Final fallback: dump response data
+		b, _ := json.MarshalIndent(res, "", "  ")
 		return string(b), nil
 	}
 
-	return text, nil
+	return strings.Join(resultParts, "\n"), nil
 }
 
 func saveGrapiConfig(config GrapiConfig) error {
