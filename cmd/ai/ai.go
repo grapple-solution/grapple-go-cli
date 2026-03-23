@@ -117,6 +117,12 @@ func (m *RemoteMCPClient) GetAvailableTools() ([]map[string]interface{}, error) 
 		return nil, err
 	}
 
+	for _, t := range result.Tools {
+		if inputSchema, ok := t["inputSchema"].(map[string]interface{}); ok {
+			SanitizeSchema(inputSchema)
+		}
+	}
+
 	return result.Tools, nil
 }
 

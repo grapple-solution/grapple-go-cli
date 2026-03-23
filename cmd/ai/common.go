@@ -33,6 +33,34 @@ type AISession interface {
 	GetModel() string
 }
 
+func handleMCPError(err error) {
+	fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	// Check if the error indicates a 401 Unauthorized status
+	if strings.Contains(err.Error(), "status 401") {
+		utils.InfoMessage("Hint: This MCP server requires authentication. Please provide a JWT token using the --token or -t flag.")
+	}
+}
+
+func SanitizeSchema(schema map[string]interface{}) {
+	if schema == nil {
+		return
+	}
+	delete(schema, "$schema")
+	delete(schema, "$id")
+	delete(schema, "additionalProperties")
+	for _, v := range schema {
+		if subMap, ok := v.(map[string]interface{}); ok {
+			SanitizeSchema(subMap)
+		} else if subArr, ok := v.([]interface{}); ok {
+			for _, item := range subArr {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					SanitizeSchema(itemMap)
+				}
+			}
+		}
+	}
+}
+
 // Helper: Extract YAML blocks from a string
 func extractYAMLBlocks(s string) []string {
 	// This regex matches code blocks with yaml/yml or indented yaml
@@ -339,13 +367,13 @@ func (c *ClaudeSession) GetModel() string {
 func (c *ClaudeSession) Chat(prompt string) (string, error) {
 	tools, err := c.ToolProvider.GetAvailableTools()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch tools: %v\n", err)
+		handleMCPError(err)
 		tools = []map[string]interface{}{}
 	}
 
 	prompts, err := c.ToolProvider.GetAvailablePrompts()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch prompts: %v\n", err)
+		handleMCPError(err)
 		prompts = []map[string]interface{}{}
 	}
 
@@ -508,13 +536,13 @@ func (o *OpenAISession) GetModel() string {
 func (o *OpenAISession) Chat(prompt string) (string, error) {
 	tools, err := o.ToolProvider.GetAvailableTools()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch tools: %v\n", err)
+		handleMCPError(err)
 		tools = []map[string]interface{}{}
 	}
 
 	prompts, err := o.ToolProvider.GetAvailablePrompts()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch prompts: %v\n", err)
+		handleMCPError(err)
 		prompts = []map[string]interface{}{}
 	}
 
@@ -685,13 +713,13 @@ func (g *GeminiSession) GetModel() string {
 func (g *GeminiSession) Chat(prompt string) (string, error) {
 	tools, err := g.ToolProvider.GetAvailableTools()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch tools: %v\n", err)
+		handleMCPError(err)
 		tools = []map[string]interface{}{}
 	}
 
 	prompts, err := g.ToolProvider.GetAvailablePrompts()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not fetch prompts: %v\n", err)
+		handleMCPError(err)
 		prompts = []map[string]interface{}{}
 	}
 

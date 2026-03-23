@@ -163,7 +163,7 @@ func (g *GrapiClient) GetAvailableTools() ([]map[string]interface{}, error) {
 		for _, t := range toolsIface {
 			if toolMap, ok := t.(map[string]interface{}); ok {
 				if inputSchema, ok := toolMap["inputSchema"].(map[string]interface{}); ok {
-					sanitizeSchema(inputSchema)
+					SanitizeSchema(inputSchema)
 				}
 				allTools = append(allTools, toolMap)
 			}
@@ -179,24 +179,6 @@ func (g *GrapiClient) GetAvailableTools() ([]map[string]interface{}, error) {
 	return allTools, nil
 }
 
-func sanitizeSchema(schema map[string]interface{}) {
-	if schema == nil {
-		return
-	}
-	delete(schema, "$schema")
-	delete(schema, "$id")
-	for _, v := range schema {
-		if subMap, ok := v.(map[string]interface{}); ok {
-			sanitizeSchema(subMap)
-		} else if subArr, ok := v.([]interface{}); ok {
-			for _, item := range subArr {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					sanitizeSchema(itemMap)
-				}
-			}
-		}
-	}
-}
 
 func (g *GrapiClient) CallTool(fnName string, args map[string]interface{}) (string, error) {
 	params := map[string]interface{}{
