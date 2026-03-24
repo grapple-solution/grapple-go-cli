@@ -28,6 +28,7 @@ var (
 	httpLoadBalancer      string
 	httpsLoadBalancer     string
 	apiPort               string
+	imagePullSecret       string
 )
 
 // fileExists checks if a file exists and is not a directory
