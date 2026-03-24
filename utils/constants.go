@@ -60,6 +60,7 @@ const (
 	SecKeyCivoClusterID       = "CIVO_CLUSTER_ID"
 	SecKeyCivoRegion          = "CIVO_REGION"
 	SecKeyCivoMasterIP        = "CIVO_MASTER_IP"
+	SecKeyImagePullSecret     = "IMAGE_PULL_SECRET"
 )
 
 const (

@@ -43,6 +43,7 @@ var (
 	hostedZoneID          string
 	ingressController     string
 	additionalValuesFiles []string
+	imagePullSecret       string
 )
 
 var (
