@@ -58,6 +58,7 @@ func init() {
 	InstallCmd.Flags().StringVar(&hostedZoneID, "hosted-zone-id", "", "AWS Route53 Hosted Zone ID (Inside Grapple's account) for DNS management")
 	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "First checks if an Ingress Controller is already installed, if not, then it can be 'nginx' or 'traefik'")
 	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
+	InstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
 
 }
 
@@ -390,9 +391,10 @@ func prepareValuesFile() error {
 			utils.SecKeyProviderClusterType: utils.ProviderClusterTypeCivo,
 
 			// Civo specific fields
-			utils.SecKeyCivoClusterID: civoClusterID,
-			utils.SecKeyCivoRegion:    civoRegion,
-			utils.SecKeyCivoMasterIP:  clusterIP,
+			utils.SecKeyCivoClusterID:   civoClusterID,
+			utils.SecKeyCivoRegion:      civoRegion,
+			utils.SecKeyCivoMasterIP:    clusterIP,
+			utils.SecKeyImagePullSecret: imagePullSecret,
 		},
 	}
 
@@ -423,6 +425,7 @@ func prepareValuesFile() error {
 		utils.InfoMessage(fmt.Sprintf("grapple-license: %s", grappleLicense))
 		utils.InfoMessage(fmt.Sprintf("organization: %s", organization))
 		utils.InfoMessage(fmt.Sprintf("email: %s", civoEmailAddress))
+		utils.InfoMessage(fmt.Sprintf("image-pull-secret: %s", imagePullSecret))
 
 		if confirmed, err := utils.PromptConfirm("Proceed with deployment using the values above?"); err != nil || !confirmed {
 			return fmt.Errorf("failed to install grpl: user cancelled")
