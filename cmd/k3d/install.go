@@ -229,6 +229,11 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 	utils.SuccessMessage("grsf is installed and ready.")
 
+	// Wait for modernized CRDs before moving to grsf-config
+	if err := utils.WaitForModernizedCRDs(kubeClient); err != nil {
+		return err
+	}
+
 	// Step 5) Deploy "grsf-config"
 	utils.InfoMessage("Deploying 'grsf-config' chart...")
 	logOnFileStart()

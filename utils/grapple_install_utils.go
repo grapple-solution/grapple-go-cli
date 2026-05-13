@@ -570,8 +570,59 @@ func WaitForGrsf(kubeClient apiv1.Interface, ns string) error {
 	return nil
 }
 
+func WaitForModernizedCRDs(kubeClient apiv1.Interface) error {
+	InfoMessage("Waiting for modernized Crossplane 1.x CRDs...")
+	discoveryClient := kubeClient.Discovery()
+	requiredKinds := []struct {
+		Group string
+		Kind  string
+	}{
+		{"kubernetes.m.crossplane.io", "ClusterProviderConfig"},
+		{"helm.m.crossplane.io", "ClusterProviderConfig"},
+		{"kubernetes.m.crossplane.io", "Object"},
+	}
+
+	for attempts := 0; attempts < 60; attempts++ {
+		_, resourceLists, err := discoveryClient.ServerGroupsAndResources()
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		foundCount := 0
+		for _, req := range requiredKinds {
+			found := false
+			for _, list := range resourceLists {
+				if strings.Contains(list.GroupVersion, req.Group) {
+					for _, r := range list.APIResources {
+						if r.Kind == req.Kind {
+							found = true
+							break
+						}
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if found {
+				foundCount++
+			}
+		}
+
+		if foundCount == len(requiredKinds) {
+			SuccessMessage("All modernized CRDs are available")
+			return nil
+		}
+
+		InfoMessage(fmt.Sprintf("Waiting for modernized CRDs (%d/%d found)...", foundCount, len(requiredKinds)))
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for modernized Crossplane CRDs")
+}
+
 // waitForGrsfConfig checks for CRDs, XRDs, etc.
-// waitForGrsfConfig waits for specific CRDs to be available and waits for all XRDs to reach the "Offered" condition
 func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) error {
 	discoveryClient := kubeClient.Discovery()
 
