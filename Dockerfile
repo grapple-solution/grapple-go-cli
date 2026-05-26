@@ -18,7 +18,8 @@ RUN brew install k3d && brew cleanup --prune=all
 
 ARG GRAPPLE_CLI_VERSION
 
-RUN brew tap grapple-solution/grapple-go-cli && \
+RUN echo "Installing Grapple CLI version: ${GRAPPLE_CLI_VERSION}" && \
+	brew tap grapple-solution/grapple-go-cli && \
 	brew install grapple-go-cli && \
         brew cleanup --prune=all
 
