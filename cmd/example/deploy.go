@@ -341,14 +341,14 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 	// Check if wait flag is set to true
 	if wait {
 		utils.InfoMessage("Waiting for grapi deployment to be ready...")
-		deploymentName := fmt.Sprintf("%s-%s-grapi", DeploymentNamespace, GrasName)
+		deploymentName := fmt.Sprintf("%s-grapi", GrasName)
 		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
 			return fmt.Errorf("failed waiting for grapi deployment: %w", err)
 		}
 		utils.SuccessMessage("grapi deployment is ready")
 
 		utils.InfoMessage("Waiting for gruim deployment to be ready...")
-		deploymentName = fmt.Sprintf("%s-%s-gruim", DeploymentNamespace, GrasName)
+		deploymentName = fmt.Sprintf("%s-gruim", GrasName)
 		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
 			return fmt.Errorf("failed waiting for gruim deployment: %w", err)
 		}
@@ -386,9 +386,9 @@ func displayDeploymentDetails(namespace, resourceName, clusterDomain string, ssl
 	if clusterDomain != "" {
 		utils.InfoMessage("Deployment Details")
 		utils.InfoMessage(fmt.Sprintf("Following resources are deployed in %s namespace", namespace))
-		utils.InfoMessage(fmt.Sprintf("Resource Name: grapi can be accessed at %s://%s-%s-grapi.%s",
-			httpPrefix, namespace, resourceName, clusterDomain))
-		utils.InfoMessage(fmt.Sprintf("Resource Name: gruim can be accessed at %s://%s-%s-gruim.%s",
-			httpPrefix, namespace, resourceName, clusterDomain))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: grapi can be accessed at %s://%s-grapi.%s",
+			httpPrefix, resourceName, clusterDomain))
+		utils.InfoMessage(fmt.Sprintf("Resource Name: gruim can be accessed at %s://%s-gruim.%s",
+			httpPrefix, resourceName, clusterDomain))
 	}
 }
