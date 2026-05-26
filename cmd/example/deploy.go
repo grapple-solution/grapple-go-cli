@@ -338,23 +338,6 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 		}
 	}
 
-	// Check if wait flag is set to true
-	if wait {
-		utils.InfoMessage("Waiting for grapi deployment to be ready...")
-		deploymentName := fmt.Sprintf("%s-grapi", GrasName)
-		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
-			return fmt.Errorf("failed waiting for grapi deployment: %w", err)
-		}
-		utils.SuccessMessage("grapi deployment is ready")
-
-		utils.InfoMessage("Waiting for gruim deployment to be ready...")
-		deploymentName = fmt.Sprintf("%s-gruim", GrasName)
-		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
-			return fmt.Errorf("failed waiting for gruim deployment: %w", err)
-		}
-		utils.SuccessMessage("gruim deployment is ready")
-	}
-
 	// Get cluster domain from environment or use default
 	clusterDomain, err := utils.ExtractDomainFromGrplConfig(restConfig)
 	if err != nil {
@@ -364,6 +347,35 @@ func applyManifest(client *kubernetes.Clientset, restConfig *rest.Config, manife
 	sslEnabled, err := utils.IsSSLEnabled(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to check SSL status: %w", err)
+	}
+
+	httpPrefix := "http"
+	if sslEnabled {
+		httpPrefix = "https"
+	}
+
+	// Check if wait flag is set to true
+	if wait {
+		grapiURL := ""
+		gruimURL := ""
+		if clusterDomain != "" {
+			grapiURL = fmt.Sprintf(" (%s://%s-grapi.%s)", httpPrefix, GrasName, clusterDomain)
+			gruimURL = fmt.Sprintf(" (%s://%s-gruim.%s)", httpPrefix, GrasName, clusterDomain)
+		}
+
+		utils.InfoMessage(fmt.Sprintf("Waiting for grapi deployment to be ready%s...", grapiURL))
+		deploymentName := fmt.Sprintf("%s-grapi", GrasName)
+		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
+			return fmt.Errorf("failed waiting for grapi deployment: %w", err)
+		}
+		utils.SuccessMessage("grapi deployment is ready")
+
+		utils.InfoMessage(fmt.Sprintf("Waiting for gruim deployment to be ready%s...", gruimURL))
+		deploymentName = fmt.Sprintf("%s-gruim", GrasName)
+		if err := utils.WaitForExampleDeployment(client, DeploymentNamespace, deploymentName); err != nil {
+			return fmt.Errorf("failed waiting for gruim deployment: %w", err)
+		}
+		utils.SuccessMessage("gruim deployment is ready")
 	}
 
 	// Display deployment details
