@@ -828,42 +828,43 @@ func WaitForGrsfIntegration(restConfig *rest.Config) error {
 	return fmt.Errorf("timeout waiting for Crossplane packages to be healthy")
 }
 
-// installKubeBlocksOnCluster installs the KubeBlocks chart using Helm.
 func InstallKubeBlocksOnCluster(
 	restConfig *rest.Config,
 ) error {
+	settings := cli.New()
+	settings.SetNamespace("kb-system")
 
 	helmCfg, err := GetHelmConfig(restConfig, "kb-system")
 	if err != nil {
 		return fmt.Errorf("failed to get helm config: %w", err)
 	}
 
-	// Check if KubeBlocks release already exists in any namespace
+	// Check if KubeBlocks release already exists
 	client := action.NewList(helmCfg)
-	client.AllNamespaces = true // Search across all namespaces
+	client.AllNamespaces = true
 	releases, err := client.Run()
 	if err != nil {
 		return fmt.Errorf("failed to list helm releases: %w", err)
 	}
 
+	alreadyInstalled := false
 	for _, release := range releases {
 		if release.Name == "kubeblocks" {
 			if release.Info.Status == "failed" {
-				// Delete the failed release
+				InfoMessage("Found failed kubeblocks release, uninstalling...")
 				uninstall := action.NewUninstall(helmCfg)
 				_, err := uninstall.Run(release.Name)
 				if err != nil {
 					return fmt.Errorf("failed to uninstall failed kubeblocks release: %w", err)
 				}
 			} else {
-
-				return nil
+				alreadyInstalled = true
 			}
 			break
 		}
 	}
 
-	// Create kb-system namespace if it doesn't exist
+	// Create kb-system namespace
 	clientset, err := apiv1.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
@@ -871,45 +872,106 @@ func InstallKubeBlocksOnCluster(
 
 	InfoMessage("Checking if kb-system namespace exists...")
 	_, err = clientset.CoreV1().Namespaces().Get(context.Background(), "kb-system", v1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			ns := &corev1.Namespace{
-				ObjectMeta: v1.ObjectMeta{
-					Name: "kb-system",
-				},
-			}
-			InfoMessage("Creating kb-system namespace...")
-			_, err = clientset.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to create kb-system namespace: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to check kb-system namespace: %w", err)
+	if err != nil && errors.IsNotFound(err) {
+		ns := &corev1.Namespace{ObjectMeta: v1.ObjectMeta{Name: "kb-system"}}
+		InfoMessage("Creating kb-system namespace...")
+		_, err = clientset.CoreV1().Namespaces().Create(context.Background(), ns, v1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create kb-system namespace: %w", err)
 		}
 	}
 
-	InfoMessage("Installing KubeBlocks CRDs...")
-	// 1. Create CRDs first
-	crdsURL := "https://github.com/apecloud/kubeblocks/releases/download/v0.9.1/kubeblocks_crds.yaml"
-
-	// Use dynamic client to create CRDs
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
-	// Fetch and apply CRDs
-	resp, err := http.Get(crdsURL)
-	if err != nil {
-		return fmt.Errorf("failed to download CRDs yaml: %w", err)
+	// 1. Install CSI Snapshot CRDs (v8.2.0)
+	snapshotCRDs := []string{
+		"https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml",
+		"https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml",
+		"https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml",
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			InfoMessage(fmt.Sprintf("Warning: failed to close response body: %v", closeErr))
-		}
-	}()
 
-	// Use k8syaml decoder to properly handle Kubernetes YAML
+	// Snapshot CRDs need Helm ownership labels for the piraeus chart to adopt them
+	snapshotLabels := map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	}
+	snapshotAnnotations := map[string]string{
+		"meta.helm.sh/release-name":      "snapshot-controller",
+		"meta.helm.sh/release-namespace": "kb-system",
+	}
+
+	for _, url := range snapshotCRDs {
+		if err := applyCRDFromURL(dynamicClient, url, snapshotLabels, snapshotAnnotations); err != nil {
+			return err
+		}
+	}
+
+	// 2. Install KubeBlocks CRDs (v1.0.2)
+	kbCRDURL := "https://github.com/apecloud/kubeblocks/releases/download/v1.0.2/kubeblocks_crds.yaml"
+	if err := applyCRDFromURL(dynamicClient, kbCRDURL, nil, nil); err != nil {
+		return err
+	}
+
+	InfoMessage("Waiting for CRDs to be established...")
+	time.Sleep(15 * time.Second)
+
+	// 3. Install Snapshot Controller (from Piraeus)
+	if err := installHelmRepo(settings, "piraeus-charts", "https://piraeus.io/helm-charts/"); err != nil {
+		return err
+	}
+
+	if err := helmInstallOrUpgrade(helmCfg, settings, "snapshot-controller", "piraeus-charts/snapshot-controller", "kb-system", "", nil); err != nil {
+		InfoMessage(fmt.Sprintf("Warning: Snapshot Controller installation failed: %v. Continuing...", err))
+	}
+
+	// 4. Install KubeBlocks
+	if err := installHelmRepo(settings, "kubeblocks", "https://apecloud.github.io/helm-charts"); err != nil {
+		return err
+	}
+
+	kubeBlocksValues := map[string]interface{}{
+		"replicas": 1,
+		"dataprotection": map[string]interface{}{
+			"replicas": 1,
+		},
+		"image": map[string]interface{}{
+			"registry":   "docker.io",
+			"repository": "apecloud/kubeblocks",
+		},
+	}
+
+	if alreadyInstalled {
+		InfoMessage("Upgrading KubeBlocks...")
+		return helmInstallOrUpgrade(helmCfg, settings, "kubeblocks", "kubeblocks/kubeblocks", "kb-system", "1.0.2", kubeBlocksValues)
+	}
+
+	InfoMessage("Installing KubeBlocks...")
+	return helmInstallOrUpgrade(helmCfg, settings, "kubeblocks", "kubeblocks/kubeblocks", "kb-system", "1.0.2", kubeBlocksValues)
+}
+
+func applyCRDFromURL(dynamicClient dynamic.Interface, url string, labels, annotations map[string]string) error {
+	var resp *http.Response
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		InfoMessage(fmt.Sprintf("Downloading CRD: %s (Attempt %d/3)", url, attempt))
+		resp, lastErr = http.Get(url)
+		if lastErr == nil && resp.StatusCode == http.StatusOK {
+			break
+		}
+		if lastErr == nil {
+			lastErr = fmt.Errorf("HTTP status %d", resp.StatusCode)
+		}
+		if attempt < 3 {
+			time.Sleep(5 * time.Second)
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("failed to download CRD from %s: %w", url, lastErr)
+	}
+	defer resp.Body.Close()
+
 	decoder := k8syaml.NewYAMLOrJSONDecoder(resp.Body, 4096)
 	for {
 		var obj unstructured.Unstructured
@@ -917,12 +979,32 @@ func InstallKubeBlocksOnCluster(
 			if err == io.EOF {
 				break
 			}
-			return fmt.Errorf("failed to decode CRD yaml: %w", err)
+			return fmt.Errorf("failed to decode YAML from %s: %w", url, err)
 		}
-
-		// Skip empty documents
 		if len(obj.Object) == 0 {
 			continue
+		}
+
+		// Apply labels and annotations if provided
+		if labels != nil {
+			existingLabels := obj.GetLabels()
+			if existingLabels == nil {
+				existingLabels = make(map[string]string)
+			}
+			for k, v := range labels {
+				existingLabels[k] = v
+			}
+			obj.SetLabels(existingLabels)
+		}
+		if annotations != nil {
+			existingAnnotations := obj.GetAnnotations()
+			if existingAnnotations == nil {
+				existingAnnotations = make(map[string]string)
+			}
+			for k, v := range annotations {
+				existingAnnotations[k] = v
+			}
+			obj.SetAnnotations(existingAnnotations)
 		}
 
 		gvr := schema.GroupVersionResource{
@@ -930,104 +1012,74 @@ func InstallKubeBlocksOnCluster(
 			Version:  "v1",
 			Resource: "customresourcedefinitions",
 		}
-
-		_, err = dynamicClient.Resource(gvr).Create(context.Background(), &obj, v1.CreateOptions{})
+		_, err := dynamicClient.Resource(gvr).Create(context.Background(), &obj, v1.CreateOptions{})
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return fmt.Errorf("failed to create CRD %s: %w", obj.GetName(), err)
 		}
 	}
+	return nil
+}
 
-	InfoMessage("Waiting for CRDs to be established...")
-	// Wait a bit for CRDs to be established
-	time.Sleep(10 * time.Second)
-
-	// 2. Create Helm environment settings
-	settings := cli.New()
-	settings.SetNamespace("kb-system")
-
-	// 3. Add the KubeBlocks Helm repository
-	repoEntry := repo.Entry{
-		Name: "kubeblocks",
-		URL:  "https://apecloud.github.io/helm-charts",
-	}
-
+func installHelmRepo(settings *cli.EnvSettings, name, url string) error {
+	repoEntry := repo.Entry{Name: name, URL: url}
 	chartRepo, err := repo.NewChartRepository(&repoEntry, getter.All(settings))
 	if err != nil {
-		return fmt.Errorf("failed to create chart repository object: %w", err)
+		return err
 	}
 
-	// Add repo to repositories.yaml
 	repoFile := settings.RepositoryConfig
 	b, err := os.ReadFile(repoFile)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read repository file: %w", err)
+		return err
 	}
 
 	var f repo.File
-	if err := yaml.Unmarshal(b, &f); err != nil {
-		return fmt.Errorf("failed to unmarshal repository file: %w", err)
-	}
-
-	// Add new repo or update existing
+	_ = yaml.Unmarshal(b, &f)
 	f.Add(&repoEntry)
-
 	if err := f.WriteFile(repoFile, 0644); err != nil {
-		return fmt.Errorf("failed to write repository file: %w", err)
+		return err
 	}
-
 	_, err = chartRepo.DownloadIndexFile()
+	return err
+}
+
+func helmInstallOrUpgrade(helmCfg *action.Configuration, settings *cli.EnvSettings, releaseName, chartName, namespace, version string, vals map[string]interface{}) error {
+	// Check if already exists for specific upgrade path
+	histClient := action.NewHistory(helmCfg)
+	histClient.Max = 1
+	_, err := histClient.Run(releaseName)
+
 	if err != nil {
-		return fmt.Errorf("failed to download repository index: %w", err)
+		installClient := action.NewInstall(helmCfg)
+		installClient.ReleaseName = releaseName
+		installClient.Namespace = namespace
+		installClient.CreateNamespace = true
+		installClient.Version = version
+		chartPath, err := installClient.ChartPathOptions.LocateChart(chartName, settings)
+		if err != nil {
+			return err
+		}
+		chartLoaded, err := loader.Load(chartPath)
+		if err != nil {
+			return err
+		}
+		_, err = installClient.Run(chartLoaded, vals)
+		return err
+	} else {
+		upgradeClient := action.NewUpgrade(helmCfg)
+		upgradeClient.Namespace = namespace
+		upgradeClient.Version = version
+		chartPath, err := upgradeClient.ChartPathOptions.LocateChart(chartName, settings)
+		if err != nil {
+			return err
+		}
+		chartLoaded, err := loader.Load(chartPath)
+		if err != nil {
+			return err
+		}
+		_, err = upgradeClient.Run(releaseName, chartLoaded, vals)
+		return err
 	}
-
-	// Suppress wait-related logs
-	// helmCfg.Log = func(format string, v ...interface{}) {}
-
-	// 4. Create a Helm install client
-	installClient := action.NewInstall(helmCfg)
-
-	installClient.ReleaseName = "kubeblocks"
-	installClient.Namespace = "kb-system"
-	installClient.CreateNamespace = true
-	installClient.Timeout = 1200 * time.Second // 20 minute timeout
-	installClient.Version = "0.9.1"
-	// installClient.Wait = true
-	installClient.Description = "Installing KubeBlocks"
-
-	// 5. Locate and load the chart
-	InfoMessage("Locating KubeBlocks chart...")
-	chartPath, err := installClient.ChartPathOptions.LocateChart("kubeblocks/kubeblocks", settings)
-	if err != nil {
-		return fmt.Errorf("failed to locate KubeBlocks chart: %w", err)
-	}
-
-	InfoMessage("Loading KubeBlocks chart...")
-	chartRequested, err := loader.Load(chartPath)
-	if err != nil {
-		return fmt.Errorf("failed to load chart at path [%s]: %w", chartPath, err)
-	}
-
-	// Set values to ensure installation in kb-system namespace
-	values := map[string]interface{}{
-		"image": map[string]interface{}{
-			"registry":   "docker.io",
-			"repository": "apecloud/kubeblocks",
-		},
-		"dataScriptImage": map[string]interface{}{
-			"registry":   "docker.io",
-			"repository": "apecloud/kubeblocks-datascript",
-		},
-		"toolImage": map[string]interface{}{
-			"registry":   "docker.io",
-			"repository": "apecloud/kubeblocks-tools",
-		},
-	}
-	InfoMessage("Installing KubeBlocks chart...")
-	if _, err := installClient.Run(chartRequested, values); err != nil {
-		return fmt.Errorf("failed to install the KubeBlocks chart: %w", err)
-	}
-
-	return nil
 }
 
 func WaitForGrappleReady(restConfig *rest.Config) error {
