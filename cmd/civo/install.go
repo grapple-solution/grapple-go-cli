@@ -602,7 +602,7 @@ func initClientsAndConfig(connectToCivoCluster func() error) (apiv1.Interface, *
 	}
 
 	if grappleVersion == "" || grappleVersion == "latest" {
-		grappleVersion = "0.3.5"
+		grappleVersion = "0.3.23"
 	}
 
 	// Define grappleDomain variable
