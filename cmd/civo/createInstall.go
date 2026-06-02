@@ -25,7 +25,7 @@ func init() {
 	CreateInstallCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts")
 	CreateInstallCmd.Flags().StringVar(&applications, "applications", "civo-cluster-autoscaler,metrics-server", "Applications to install")
 	CreateInstallCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes")
-	CreateInstallCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size")
+	CreateInstallCmd.Flags().StringVar(&size, "size", "g4c.kube.small", "Node size")
 
 	// Install command flags
 	CreateInstallCmd.Flags().StringVar(&grappleVersion, "grapple-version", "latest", "Version of Grapple to install")

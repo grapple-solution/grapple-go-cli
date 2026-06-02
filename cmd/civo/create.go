@@ -28,7 +28,7 @@ func init() {
 	CreateCmd.Flags().BoolVar(&autoConfirm, "auto-confirm", false, "Skip confirmation prompts (default: false)")
 	CreateCmd.Flags().StringVar(&applications, "applications", "civo-cluster-autoscaler,metrics-server", "Applications to install")
 	CreateCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes (default: 3)")
-	CreateCmd.Flags().StringVar(&size, "size", "g4s.kube.medium", "Node size (default: g4s.kube.medium)")
+	CreateCmd.Flags().StringVar(&size, "size", "g4c.kube.small", "Node size (default: g4c.kube.small)")
 	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
 }
 
