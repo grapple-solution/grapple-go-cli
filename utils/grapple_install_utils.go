@@ -932,9 +932,22 @@ func InstallKubeBlocksOnCluster(
 	}
 
 	kubeBlocksValues := map[string]interface{}{
-		"replicas": 1,
+		"replicas":         3,
+		"replicaCount":     3,
+		"reconcileWorkers": 4,
+		"client": map[string]interface{}{
+			"qps":   50,
+			"burst": 100,
+		},
+		"cache": map[string]interface{}{
+			"syncTimeout": 600,
+		},
 		"dataprotection": map[string]interface{}{
-			"replicas": 1,
+			"replicas": 3,
+		},
+		"dataProtection": map[string]interface{}{
+			"replicas":         3,
+			"reconcileWorkers": 4,
 		},
 		"image": map[string]interface{}{
 			"registry":   "docker.io",
