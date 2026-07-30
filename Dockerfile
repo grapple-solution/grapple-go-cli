@@ -8,7 +8,7 @@ RUN brew install gum kubectl && \
         brew cleanup --prune=all
 
 RUN brew install devspace go-task && \
-	brew tap civo/tools && brew install civo && \
+	brew tap civo/tools && brew trust civo/tools && brew install civo && \
 	brew cleanup --prune=all
 
 RUN if [ "$TARGETARCH" != "arm64" ]; then brew install yq; brew cleanup --prune=all; fi && \
@@ -20,6 +20,7 @@ ARG GRAPPLE_CLI_VERSION
 
 RUN echo "Installing Grapple CLI version: ${GRAPPLE_CLI_VERSION}" && \
 	brew tap grapple-solution/grapple-go-cli && \
+	brew trust grapple-solution/grapple-go-cli && \
 	brew install grapple-go-cli && \
         brew cleanup --prune=all
 
