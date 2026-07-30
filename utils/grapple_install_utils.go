@@ -1343,3 +1343,53 @@ func UninstallGrapple(connectToCluster func() error, logOnFileStart, logOnCliAnd
 	SuccessMessage("Grapple uninstallation completed!")
 	return nil
 }
+
+func InstallCentralRedisCluster(restConfig *rest.Config) error {
+	// Get the resource path for "files"
+	filesPath, err := GetResourcePath("files")
+	if err != nil {
+		return fmt.Errorf("failed to get files resource path: %w", err)
+	}
+
+	src := filepath.Join(filesPath, "gragent-redis.yaml")
+	yamlFile, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("failed to read gragent-redis manifest: %w", err)
+	}
+
+	// Create dynamic client
+	dynamicClient, err := dynamic.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create dynamic client: %w", err)
+	}
+
+	decoder := k8syaml.NewYAMLOrJSONDecoder(strings.NewReader(string(yamlFile)), 4096)
+	var obj unstructured.Unstructured
+	if err := decoder.Decode(&obj); err != nil {
+		return fmt.Errorf("failed to decode gragent-redis manifest: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "apps.kubeblocks.io",
+		Version:  "v1",
+		Resource: "clusters",
+	}
+
+	InfoMessage("Creating central Redis cluster 'gragent-redis' in 'grpl-system' namespace...")
+	_, err = dynamicClient.Resource(gvr).Namespace("grpl-system").Create(context.TODO(), &obj, v1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			InfoMessage("Central Redis cluster 'gragent-redis' already exists, skipping creation")
+			return nil
+		}
+		errStr := err.Error()
+		if strings.Contains(errStr, "not found") || strings.Contains(errStr, "could not find the requested resource") {
+			InfoMessage("KubeBlocks is not installed on this cluster, skipping central Redis cluster creation")
+			return nil
+		}
+		return fmt.Errorf("failed to create central Redis cluster: %w", err)
+	}
+
+	SuccessMessage("Central Redis cluster 'gragent-redis' created successfully!")
+	return nil
+}
