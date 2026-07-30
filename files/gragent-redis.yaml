@@ -1,0 +1,45 @@
+apiVersion: apps.kubeblocks.io/v1
+kind: Cluster
+metadata:
+  name: gragent-redis
+  namespace: grpl-system
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  clusterDef: redis
+  topology: standalone
+  terminationPolicy: Delete
+  componentSpecs:
+    - name: redis
+      serviceVersion: 7.0.6
+      replicas: 1
+      schedulingPolicy:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/instance: gragent-redis
+                  topologyKey: kubernetes.io/hostname
+        tolerations:
+          - key: kb-data
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
+      resources:
+        limits:
+          cpu: "2"
+          memory: 4Gi
+        requests:
+          cpu: "0.5"
+          memory: 500Mi
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 20Gi

@@ -12,8 +12,9 @@ var (
 	clusterIP         string
 	grappleDNS        string
 	organization      string
-	email             string
-	installKubeblocks bool
+	email              string
+	installKubeblocks  bool
+	installGlobalRedis bool
 	// waitForReady      bool
 	sslEnable             bool
 	sslIssuer             string

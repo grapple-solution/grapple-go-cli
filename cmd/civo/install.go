@@ -59,7 +59,7 @@ func init() {
 	InstallCmd.Flags().StringVar(&ingressController, "ingress-controller", "traefik", "First checks if an Ingress Controller is already installed, if not, then it can be 'nginx' or 'traefik'")
 	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
 	InstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
-
+	InstallCmd.Flags().BoolVar(&installGlobalRedis, "install-global-redis", false, "Install central Redis cluster (default: false)")
 }
 
 // runInstallStepByStep is the main function
@@ -113,6 +113,18 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		}
 		if strings.ToLower(confirmed) == "y" {
 			installKubeblocks = true
+		}
+	}
+
+	// Check if flag was not set and not explicitly false for global redis
+	if !cmd.Flags().Changed("install-global-redis") && !installGlobalRedis {
+		confirmMsg := "Do you want to install central Redis cluster? (y/N): "
+		confirmed, err := utils.PromptInput(confirmMsg, "n", "^[yYnN]$")
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(confirmed) == "y" {
+			installGlobalRedis = true
 		}
 	}
 
@@ -303,6 +315,16 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	if err := utils.RemoveCodeVerificationServer(restConfig); err != nil {
 		utils.ErrorMessage("Failed to remove code verification server: " + err.Error())
 		// Continue execution as this is not a critical error
+	}
+
+	if installGlobalRedis {
+		if installKubeblocks {
+			if err := utils.InstallCentralRedisCluster(restConfig); err != nil {
+				utils.ErrorMessage(fmt.Sprintf("Failed to install central Redis cluster: %v", err))
+			}
+		} else {
+			utils.ErrorMessage("Warning: You must set --install-kubeblocks to true along with --install-global-redis to work, skipping central Redis installation.")
+		}
 	}
 
 	utils.SuccessMessage("Grapple installation completed!")

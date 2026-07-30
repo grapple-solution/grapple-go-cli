@@ -37,6 +37,7 @@ func init() {
 	CreateInstallCmd.Flags().StringVar(&sslIssuer, "ssl-issuer", "letsencrypt-grapple-demo", "SSL Issuer (default: letsencrypt-grapple-demo)")
 	CreateInstallCmd.Flags().StringVar(&grappleLicense, "grapple-license", "", "Grapple license key")
 	CreateInstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
+	CreateInstallCmd.Flags().BoolVar(&installGlobalRedis, "install-global-redis", false, "Install central Redis cluster")
 }
 
 func runCreateInstall(cmd *cobra.Command, args []string) error {

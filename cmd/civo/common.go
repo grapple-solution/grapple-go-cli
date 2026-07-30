@@ -26,8 +26,9 @@ var (
 	key               string
 	civoRegion        string
 	civoEmailAddress  string
-	installKubeblocks bool
-	skipConfirmation  bool
+	installKubeblocks  bool
+	installGlobalRedis bool
+	skipConfirmation   bool
 
 	// Installation specific flags
 	grappleVersion        string
