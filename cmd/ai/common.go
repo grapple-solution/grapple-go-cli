@@ -298,7 +298,10 @@ func createAISession(config *AIConfig, provider ToolProvider) (AISession, error)
 	case "anthropic":
 		model := config.Model
 		if model == "" {
-			model = getEnvModel("CLAUDE_MODEL", "claude-3-5-haiku-latest")
+			model = getEnvModel("CLAUDE_MODEL")
+		}
+		if model == "" {
+			return nil, fmt.Errorf("model is required for anthropic. Please specify a model using the --model flag or CLAUDE_MODEL environment variable")
 		}
 		return &ClaudeSession{
 			APIKey:       config.APIKey,
@@ -308,7 +311,10 @@ func createAISession(config *AIConfig, provider ToolProvider) (AISession, error)
 	case "openai":
 		model := config.Model
 		if model == "" {
-			model = getEnvModel("OPENAI_MODEL", "gpt-4o-mini")
+			model = getEnvModel("OPENAI_MODEL")
+		}
+		if model == "" {
+			return nil, fmt.Errorf("model is required for openai. Please specify a model using the --model flag or OPENAI_MODEL environment variable")
 		}
 		return &OpenAISession{
 			APIKey:       config.APIKey,
@@ -318,7 +324,10 @@ func createAISession(config *AIConfig, provider ToolProvider) (AISession, error)
 	case "gemini":
 		model := config.Model
 		if model == "" {
-			model = getEnvModel("GEMINI_MODEL", "gemini-2.5-flash")
+			model = getEnvModel("GEMINI_MODEL")
+		}
+		if model == "" {
+			return nil, fmt.Errorf("model is required for gemini. Please specify a model using the --model flag or GEMINI_MODEL environment variable")
 		}
 		return &GeminiSession{
 			APIKey:       config.APIKey,
@@ -330,12 +339,12 @@ func createAISession(config *AIConfig, provider ToolProvider) (AISession, error)
 	}
 }
 
-func getEnvModel(envVar, defaultValue string) string {
+func getEnvModel(envVar string) string {
 	if val := os.Getenv(envVar); val != "" {
 		utils.InfoMessage(fmt.Sprintf("Using model override from %s: %s", envVar, val))
 		return val
 	}
-	return defaultValue
+	return ""
 }
 
 // --- Provider Sessions ---
