@@ -1379,7 +1379,17 @@ func InstallCentralRedisCluster(restConfig *rest.Config) error {
 	_, err = dynamicClient.Resource(gvr).Namespace("grpl-system").Create(context.TODO(), &obj, v1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			InfoMessage("Central Redis cluster 'gragent-redis' already exists, skipping creation")
+			InfoMessage("Central Redis cluster 'gragent-redis' already exists, updating configuration...")
+			existingObj, getErr := dynamicClient.Resource(gvr).Namespace("grpl-system").Get(context.TODO(), obj.GetName(), v1.GetOptions{})
+			if getErr != nil {
+				return fmt.Errorf("failed to get existing central Redis cluster: %w", getErr)
+			}
+			existingObj.Object["spec"] = obj.Object["spec"]
+			_, updateErr := dynamicClient.Resource(gvr).Namespace("grpl-system").Update(context.TODO(), existingObj, v1.UpdateOptions{})
+			if updateErr != nil {
+				return fmt.Errorf("failed to update central Redis cluster: %w", updateErr)
+			}
+			SuccessMessage("Central Redis cluster 'gragent-redis' updated successfully!")
 			return nil
 		}
 		errStr := err.Error()
