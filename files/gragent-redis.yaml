@@ -43,3 +43,9 @@ spec:
             resources:
               requests:
                 storage: 20Gi
+      configs:
+        - name: redis-config
+          keys:
+            - key: redis.conf
+              values:
+                maxmemory-policy: allkeys-lru
