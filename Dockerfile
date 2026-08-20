@@ -16,13 +16,16 @@ RUN if [ "$TARGETARCH" != "arm64" ]; then brew install yq; brew cleanup --prune=
 
 RUN brew install k3d && brew cleanup --prune=all 
 
+ENV HOMEBREW_NO_AUTO_UPDATE=1
+ENV NONINTERACTIVE=1
+
 ARG GRAPPLE_CLI_VERSION
 
 RUN echo "Installing Grapple CLI version: ${GRAPPLE_CLI_VERSION}" && \
 	brew tap grapple-solution/grapple-go-cli && \
 	brew trust grapple-solution/grapple-go-cli && \
-	brew install grapple-go-cli && \
-        brew cleanup --prune=all
+	brew install grapple-solution/grapple-go-cli/grapple-go-cli && \
+	brew cleanup --prune=all
 
 RUN echo "alias grpl=grapple" >> /home/user/.bashrc && \
 	echo "alias k=kubectl" >> /home/user/.bashrc && \
