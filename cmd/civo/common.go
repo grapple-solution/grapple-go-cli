@@ -28,6 +28,7 @@ var (
 	civoEmailAddress  string
 	installKubeblocks  bool
 	installGlobalRedis bool
+	installMonitoring  bool
 	skipConfirmation   bool
 
 	// Installation specific flags

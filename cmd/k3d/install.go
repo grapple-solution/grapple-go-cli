@@ -53,6 +53,7 @@ func init() {
 	InstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
 	InstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
 	InstallCmd.Flags().BoolVar(&installGlobalRedis, "install-global-redis", false, "Install central Redis cluster (default: false)")
+	InstallCmd.Flags().BoolVar(&installMonitoring, "install-monitoring", false, "Install grsf-monitoring stack (default: false)")
 }
 
 // runInstallStepByStep is the main function
@@ -274,6 +275,18 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("grsf-integration not ready: %w", err)
 	}
 	utils.SuccessMessage("grsf-integration is installed.")
+
+	// Step 7) Deploy "grsf-monitoring" if installMonitoring flag is set
+	if installMonitoring {
+		utils.InfoMessage("Deploying 'grsf-monitoring' chart...")
+		logOnFileStart()
+		if err := utils.HelmDeployGrplReleasesWithRetry(kubeClient, "grsf-monitoring", "grpl-system", grappleVersion, valuesFile); err != nil {
+			utils.ErrorMessage(fmt.Sprintf("Warning: failed to deploy grsf-monitoring: %v", err))
+		} else {
+			utils.SuccessMessage("grsf-monitoring is installed.")
+		}
+		logOnCliAndFileStart()
+	}
 
 	// Step 8) If user wants to wait for the entire Grapple system
 	if waitForReady {

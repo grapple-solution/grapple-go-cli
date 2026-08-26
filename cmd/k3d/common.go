@@ -15,6 +15,7 @@ var (
 	email              string
 	installKubeblocks  bool
 	installGlobalRedis bool
+	installMonitoring  bool
 	// waitForReady      bool
 	sslEnable             bool
 	sslIssuer             string

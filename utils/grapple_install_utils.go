@@ -1300,7 +1300,7 @@ func UninstallGrapple(connectToCluster func() error, logOnFileStart, logOnCliAnd
 		}
 
 		// Uninstall Helm releases in reverse order
-		releases := []string{"grsf-integration", "grsf-config", "grsf", "grsf-init"}
+		releases := []string{"grsf-monitoring", "grsf-integration", "grsf-config", "grsf", "grsf-init"}
 		for _, release := range releases {
 			InfoMessage(fmt.Sprintf("Uninstalling %s...", release))
 			logOnFileStart()

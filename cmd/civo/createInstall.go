@@ -40,6 +40,7 @@ func init() {
 	CreateInstallCmd.Flags().StringSliceVar(&additionalValuesFiles, "values", []string{}, "Specify values files to use (can specify multiple times using following format: --values=values1.yaml,values2.yaml)")
 	CreateInstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
 	CreateInstallCmd.Flags().BoolVar(&installGlobalRedis, "install-global-redis", false, "Install central Redis cluster")
+	CreateInstallCmd.Flags().BoolVar(&installMonitoring, "install-monitoring", false, "Install grsf-monitoring stack (default: false)")
 }
 
 func runCreateInstall(cmd *cobra.Command, args []string) error {
