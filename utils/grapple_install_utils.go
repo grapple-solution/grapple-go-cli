@@ -571,7 +571,7 @@ func WaitForGrsf(kubeClient apiv1.Interface, ns string) error {
 }
 
 // waitForGrsfConfig checks for CRDs, XRDs, etc.
-// waitForGrsfConfig waits for specific CRDs to be available and waits for all XRDs to reach the "Established" condition
+// waitForGrsfConfig waits for specific CRDs to be available and waits for all XRDs to reach the "Offered" condition
 func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) error {
 	discoveryClient := kubeClient.Discovery()
 
@@ -635,7 +635,7 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 		}
 	}
 
-	// Wait for all XRDs to reach "Established" condition
+	// Wait for all XRDs to reach "Offered" condition
 	dynamicClient, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create dynamic client: %w", err)
@@ -651,11 +651,11 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 		return fmt.Errorf("failed to list XRDs: %w", err)
 	}
 
-	// Wait for each XRD to reach "Established" condition
+	// Wait for each XRD to reach "Offered" condition
 	for _, xrd := range xrds.Items {
-		err = waitForCondition(dynamicClient, xrd.GetName(), "Established")
+		err = waitForCondition(dynamicClient, xrd.GetName(), "Offered")
 		if err != nil {
-			return fmt.Errorf("failed waiting for XRD %s to be established: %w", xrd.GetName(), err)
+			return fmt.Errorf("failed waiting for XRD %s: %w", xrd.GetName(), err)
 		}
 	}
 
