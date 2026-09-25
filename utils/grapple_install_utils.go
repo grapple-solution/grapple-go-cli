@@ -651,9 +651,9 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 		return fmt.Errorf("failed to list XRDs: %w", err)
 	}
 
-	// Wait for each XRD to reach "Offered" condition
+	// Wait for each XRD to reach ready condition (Established, and Offered if claimNames is defined)
 	for _, xrd := range xrds.Items {
-		err = waitForCondition(dynamicClient, xrd.GetName(), "Offered")
+		err = waitForXRDReady(dynamicClient, xrd.GetName())
 		if err != nil {
 			return fmt.Errorf("failed waiting for XRD %s: %w", xrd.GetName(), err)
 		}
@@ -661,6 +661,61 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 
 	log.Println("All required CRDs and XRDs are available!")
 	return nil
+}
+
+func waitForXRDReady(client dynamic.Interface, xrdName string) error {
+	for attempts := 0; attempts < 60; attempts++ {
+		xrd, err := client.Resource(schema.GroupVersionResource{
+			Group:    "apiextensions.crossplane.io",
+			Version:  "v1",
+			Resource: "compositeresourcedefinitions",
+		}).Get(context.Background(), xrdName, v1.GetOptions{})
+
+		if err != nil {
+			return err
+		}
+
+		// Check if this XRD defines a claim (spec.claimNames.kind)
+		hasClaim := false
+		claimNames, found, err := unstructured.NestedMap(xrd.Object, "spec", "claimNames")
+		if err == nil && found && len(claimNames) > 0 {
+			if kind, ok := claimNames["kind"].(string); ok && kind != "" {
+				hasClaim = true
+			}
+		}
+
+		conditions, found, err := unstructured.NestedSlice(xrd.Object, "status", "conditions")
+		if err != nil || !found {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		isEstablished := false
+		isOffered := false
+		for _, c := range conditions {
+			cond, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if cond["type"] == "Established" && cond["status"] == "True" {
+				isEstablished = true
+			}
+			if cond["type"] == "Offered" && cond["status"] == "True" {
+				isOffered = true
+			}
+		}
+
+		// Backward-compatible check:
+		// - If XRD defines a claim: both Established and Offered must be True
+		// - If XRD does not define a claim: only Established must be True
+		if isEstablished && (!hasClaim || isOffered) {
+			return nil
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for XRD %s to be ready", xrdName)
 }
 
 func waitForCondition(client dynamic.Interface, xrdName string, condition string) error {
