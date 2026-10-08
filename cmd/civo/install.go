@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -170,12 +171,9 @@ func runInstallStepByStep(cmd *cobra.Command, args []string) error {
 	}
 
 	if installClusterAutoscaler {
-		logOnFileStart()
-		if err := setupClusterAutoscaler(restConfig); err != nil {
-			logOnCliAndFileStart()
+		if err := setupClusterAutoscaler(restConfig, logOnFileStart, logOnCliAndFileStart); err != nil {
 			return fmt.Errorf("failed to setup cluster autoscaler: %w", err)
 		}
-		logOnCliAndFileStart()
 	}
 
 	// wait for loadbalancer to be ready
@@ -981,19 +979,116 @@ func setupNginx(restConfig *rest.Config) error {
 	return nil
 }
 
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// getDefaultNodePoolID attempts to discover the default node pool ID from Civo or Kubernetes node labels
+func getDefaultNodePoolID(restConfig *rest.Config) string {
+	civoAPIKey := getCivoAPIKey()
+	if civoAPIKey != "" && civoRegion != "" {
+		client, err := civogo.NewClient(civoAPIKey, civoRegion)
+		if err == nil {
+			targetClusterID := civoClusterID
+			if targetClusterID == "" && clusterName != "" {
+				cluster, _ := findClusterByName(client, clusterName)
+				if cluster != nil {
+					targetClusterID = cluster.ID
+				}
+			}
+			if targetClusterID != "" {
+				pools, err := client.ListKubernetesClusterPools(targetClusterID)
+				if err == nil && len(pools) > 0 {
+					// 1. Look for a pool whose ID matches a UUID
+					for _, pool := range pools {
+						if uuidRegex.MatchString(pool.ID) {
+							return pool.ID
+						}
+					}
+					// 2. Look for any pool not named "nodes-pool"
+					for _, pool := range pools {
+						if pool.ID != "nodes-pool" && pool.ID != "" {
+							return pool.ID
+						}
+					}
+				}
+
+				cluster, err := client.GetKubernetesCluster(targetClusterID)
+				if err == nil && cluster != nil && len(cluster.Pools) > 0 {
+					for _, pool := range cluster.Pools {
+						if uuidRegex.MatchString(pool.ID) {
+							return pool.ID
+						}
+					}
+					for _, pool := range cluster.Pools {
+						if pool.ID != "nodes-pool" && pool.ID != "" {
+							return pool.ID
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Secondary fallback: inspect Kubernetes node labels
+	clientset, err := apiv1.NewForConfig(restConfig)
+	if err == nil {
+		nodes, err := clientset.CoreV1().Nodes().List(context.Background(), v1.ListOptions{})
+		if err == nil && len(nodes.Items) > 0 {
+			labelKeys := []string{
+				"kubernetes.civo.com/civo-node-pool",
+				"k8s.civo.com/node-pool",
+				"civo.com/node-pool",
+			}
+			// 1. Look for a node whose pool label matches a UUID
+			for _, node := range nodes.Items {
+				for _, key := range labelKeys {
+					if val, ok := node.Labels[key]; ok && val != "" {
+						if uuidRegex.MatchString(val) {
+							return val
+						}
+					}
+				}
+			}
+			// 2. Look for any node whose pool label is not "nodes-pool"
+			for _, node := range nodes.Items {
+				for _, key := range labelKeys {
+					if val, ok := node.Labels[key]; ok && val != "" && val != "nodes-pool" {
+						return val
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
 // setupClusterAutoscaler installs or upgrades the Kubernetes Cluster Autoscaler via Helm
-func setupClusterAutoscaler(restConfig *rest.Config) error {
-	utils.StartSpinner("Setting up Cluster Autoscaler...")
-	defer utils.StopSpinner()
+func setupClusterAutoscaler(restConfig *rest.Config, logOnFileStart, logOnCliAndFileStart func()) error {
+	logOnCliAndFileStart()
+
+	// Check if a deployment named 'cluster-autoscaler' already exists in kube-system
+	clientset, err := apiv1.NewForConfig(restConfig)
+	if err != nil {
+		utils.ErrorMessage("Failed to create kubernetes client: " + err.Error())
+		return err
+	}
+
+	_, err = clientset.AppsV1().Deployments("kube-system").Get(context.Background(), "cluster-autoscaler", v1.GetOptions{})
+	if err == nil {
+		utils.InfoMessage("Deployment 'cluster-autoscaler' already exists in kube-system. Skipping cluster autoscaler setup.")
+		return nil
+	}
+
+	utils.InfoMessage("Setting up Cluster Autoscaler via Helm...")
 
 	// Initialize Helm client for kube-system
 	helmCfg, err := utils.GetHelmConfig(restConfig, "kube-system")
 	if err != nil {
-		utils.ErrorMessage("Failed to initialize Helm configuration for cluster-autoscaler: " + err.Error())
+		utils.ErrorMessage("Failed to initialize Helm configuration for grapple-cluster-autoscaler: " + err.Error())
 		return err
 	}
 
-	// Check if cluster-autoscaler release already exists
+	// Check if grapple-cluster-autoscaler release already exists
 	listClient := action.NewList(helmCfg)
 	listClient.AllNamespaces = false
 	releases, err := listClient.Run()
@@ -1004,7 +1099,7 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 
 	autoscalerReleaseExists := false
 	for _, release := range releases {
-		if release.Name == "cluster-autoscaler" {
+		if release.Name == "grapple-cluster-autoscaler" {
 			autoscalerReleaseExists = true
 			break
 		}
@@ -1047,7 +1142,9 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 		return err
 	}
 
+	logOnFileStart()
 	_, err = chartRepo.DownloadIndexFile()
+	logOnCliAndFileStart()
 	if err != nil {
 		utils.ErrorMessage("Failed to download repository index: " + err.Error())
 		return err
@@ -1055,7 +1152,9 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 
 	// Locate and load the chart
 	cpOptions := action.ChartPathOptions{}
+	logOnFileStart()
 	chartPath, err := cpOptions.LocateChart("autoscaler/cluster-autoscaler", settings)
+	logOnCliAndFileStart()
 	if err != nil {
 		utils.ErrorMessage("Failed to locate cluster-autoscaler chart: " + err.Error())
 		return err
@@ -1070,11 +1169,12 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 	civoAPIKey := getCivoAPIKey()
 
 	values := map[string]interface{}{
-		"cloudProvider": "civo",
-		"civoApiKey":    civoAPIKey,
-		"civoClusterID": civoClusterID,
-		"civoRegion":    civoRegion,
-		"replicaCount":  autoscalerReplicas,
+		"fullnameOverride": "grapple-cluster-autoscaler",
+		"cloudProvider":    "civo",
+		"civoApiKey":       civoAPIKey,
+		"civoClusterID":    civoClusterID,
+		"civoRegion":       civoRegion,
+		"replicaCount":     autoscalerReplicas,
 		"resources": map[string]interface{}{
 			"limits": map[string]interface{}{
 				"cpu":    "500m",
@@ -1090,7 +1190,8 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 	var autoscalingGroups []interface{}
 
 	if autoscalerNodesConfig != "" {
-		// Parse comma-separated pool configurations, e.g. "pool1:1-3,pool2:1-10" or "workers:1-5,nodes-pool:1-10"
+		defaultPoolID := ""
+		// Parse comma-separated pool configurations, e.g. "default:1-5,nodes-pool:1-10" or "workers:1-5,nodes-pool:1-10"
 		pools := strings.Split(autoscalerNodesConfig, ",")
 		for _, p := range pools {
 			p = strings.TrimSpace(p)
@@ -1098,95 +1199,94 @@ func setupClusterAutoscaler(restConfig *rest.Config) error {
 				continue
 			}
 
-			// Format: <poolID>:<min>-<max> (also supports <poolID>:<min>:<max>)
+			var poolID string
+			var minNodes, maxNodes int
+			valid := false
+
+			// Format: <poolID>:<min>-<max>
 			parts := strings.Split(p, ":")
 			if len(parts) == 2 {
-				poolID := strings.TrimSpace(parts[0])
+				poolID = strings.TrimSpace(parts[0])
 				rangeParts := strings.Split(strings.TrimSpace(parts[1]), "-")
 				if len(rangeParts) == 2 {
-					minNodes, errMin := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
-					maxNodes, errMax := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
+					minN, errMin := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
+					maxN, errMax := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
 					if errMin == nil && errMax == nil {
-						autoscalingGroups = append(autoscalingGroups, map[string]interface{}{
-							"name":    poolID,
-							"minSize": minNodes,
-							"maxSize": maxNodes,
-						})
+						minNodes = minN
+						maxNodes = maxN
+						valid = true
 					}
 				}
 			} else if len(parts) == 3 {
 				// Format: <poolID>:<min>:<max>
-				poolID := strings.TrimSpace(parts[0])
-				minNodes, errMin := strconv.Atoi(strings.TrimSpace(parts[1]))
-				maxNodes, errMax := strconv.Atoi(strings.TrimSpace(parts[2]))
+				poolID = strings.TrimSpace(parts[0])
+				minN, errMin := strconv.Atoi(strings.TrimSpace(parts[1]))
+				maxN, errMax := strconv.Atoi(strings.TrimSpace(parts[2]))
 				if errMin == nil && errMax == nil {
-					autoscalingGroups = append(autoscalingGroups, map[string]interface{}{
-						"name":    poolID,
-						"minSize": minNodes,
-						"maxSize": maxNodes,
-					})
+					minNodes = minN
+					maxNodes = maxN
+					valid = true
 				}
 			}
+
+			if valid {
+				// Auto-discover and populate default pool ID if "default" or "workers" is mentioned
+				if poolID == "default" || poolID == "workers" {
+					if defaultPoolID == "" {
+						utils.InfoMessage("Discovering default node pool ID...")
+						defaultPoolID = getDefaultNodePoolID(restConfig)
+						if defaultPoolID != "" {
+							utils.InfoMessage(fmt.Sprintf("Discovered default node pool ID: %s", defaultPoolID))
+						} else {
+							utils.ErrorMessage(fmt.Sprintf("Warning: could not automatically discover default node pool ID; keeping pool name as '%s'", poolID))
+						}
+					}
+					if defaultPoolID != "" {
+						poolID = defaultPoolID
+					}
+				}
+
+				autoscalingGroups = append(autoscalingGroups, map[string]interface{}{
+					"name":    poolID,
+					"minSize": minNodes,
+					"maxSize": maxNodes,
+				})
+				utils.InfoMessage(fmt.Sprintf("Configured autoscaling group: pool=%s (min: %d, max: %d)", poolID, minNodes, maxNodes))
+			}
+		}
+
+		if len(autoscalingGroups) > 0 {
+			values["autoscalingGroups"] = autoscalingGroups
 		}
 	}
 
-	// Fallback to default pools if no config provided or parsed
-	if len(autoscalingGroups) == 0 {
-		autoscalingGroups = append(autoscalingGroups,
-			map[string]interface{}{
-				"name":    "workers",
-				"minSize": 1,
-				"maxSize": 3,
-			},
-			map[string]interface{}{
-				"name":    "nodes-pool",
-				"minSize": 1,
-				"maxSize": 10,
-			},
-		)
-	}
-
-	values["autoscalingGroups"] = autoscalingGroups
-
 	if autoscalerReleaseExists {
-		utils.InfoMessage("Upgrading Cluster Autoscaler release...")
+		utils.InfoMessage("Upgrading existing Cluster Autoscaler release (grapple-cluster-autoscaler)...")
 		upgradeClient := action.NewUpgrade(helmCfg)
 		upgradeClient.Namespace = "kube-system"
-		_, err = upgradeClient.Run("cluster-autoscaler", chart, values)
+		logOnFileStart()
+		_, err = upgradeClient.Run("grapple-cluster-autoscaler", chart, values)
+		logOnCliAndFileStart()
 		if err != nil {
 			utils.ErrorMessage("Failed to upgrade Cluster Autoscaler: " + err.Error())
 			return err
 		}
-		utils.InfoMessage("Cluster Autoscaler upgraded successfully")
+		utils.SuccessMessage("Cluster Autoscaler upgraded successfully.")
 	} else {
-		// Clean up unmanaged Civo Marketplace deployment/resources if present to avoid Helm conflict
-		clientset, err := apiv1.NewForConfig(restConfig)
-		if err == nil {
-			existingDeploy, err := clientset.AppsV1().Deployments("kube-system").Get(context.Background(), "cluster-autoscaler", v1.GetOptions{})
-			if err == nil && existingDeploy != nil {
-				if existingDeploy.Labels == nil || existingDeploy.Labels["app.kubernetes.io/managed-by"] != "Helm" {
-					utils.InfoMessage("Removing unmanaged cluster-autoscaler resources from Civo Marketplace...")
-					_ = clientset.AppsV1().Deployments("kube-system").Delete(context.Background(), "cluster-autoscaler", v1.DeleteOptions{})
-					_ = clientset.CoreV1().ServiceAccounts("kube-system").Delete(context.Background(), "cluster-autoscaler", v1.DeleteOptions{})
-					_ = clientset.RbacV1().ClusterRoles().Delete(context.Background(), "cluster-autoscaler", v1.DeleteOptions{})
-					_ = clientset.RbacV1().ClusterRoleBindings().Delete(context.Background(), "cluster-autoscaler", v1.DeleteOptions{})
-					time.Sleep(3 * time.Second)
-				}
-			}
-		}
-
-		utils.InfoMessage("Installing Cluster Autoscaler via Helm...")
+		utils.InfoMessage("Deploying Cluster Autoscaler via Helm (grapple-cluster-autoscaler)...")
 		installClient := action.NewInstall(helmCfg)
 		installClient.Namespace = "kube-system"
 		installClient.CreateNamespace = false
-		installClient.ReleaseName = "cluster-autoscaler"
+		installClient.ReleaseName = "grapple-cluster-autoscaler"
 
+		logOnFileStart()
 		_, err = installClient.Run(chart, values)
+		logOnCliAndFileStart()
 		if err != nil {
 			utils.ErrorMessage("Failed to install Cluster Autoscaler: " + err.Error())
 			return err
 		}
-		utils.InfoMessage("Cluster Autoscaler installed successfully")
+		utils.SuccessMessage("Cluster Autoscaler installed successfully.")
 	}
 
 	return nil
