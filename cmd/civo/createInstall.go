@@ -2,6 +2,7 @@ package civo
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/grapple-solution/grapple_cli/utils"
 	"github.com/spf13/cobra"
@@ -41,9 +42,19 @@ func init() {
 	CreateInstallCmd.Flags().StringVar(&imagePullSecret, "image-pull-secret", "", "Image pull secret for private repositories")
 	CreateInstallCmd.Flags().BoolVar(&installGlobalRedis, "install-global-redis", false, "Install central Redis cluster")
 	CreateInstallCmd.Flags().BoolVar(&installMonitoring, "install-monitoring", false, "Install grsf-monitoring stack (default: false)")
+
+	CreateInstallCmd.Flags().BoolVar(&installClusterAutoscaler, "install-cluster-autoscaler", false, "Install Cluster Autoscaler via Helm")
+	CreateInstallCmd.Flags().IntVar(&autoscalerReplicas, "autoscaler-replicas", 3, "Number of replicas for Cluster Autoscaler")
+	CreateInstallCmd.Flags().StringVar(&autoscalerNodesConfig, "autoscaler-nodes-config", "", "Node pools autoscaling configuration in format: <poolID>:<min>-<max>,<poolID>:<min>-<max>")
 }
 
 func runCreateInstall(cmd *cobra.Command, args []string) error {
+	if installClusterAutoscaler {
+		applications = strings.ReplaceAll(applications, "civo-cluster-autoscaler,", "")
+		applications = strings.ReplaceAll(applications, ",civo-cluster-autoscaler", "")
+		applications = strings.ReplaceAll(applications, "civo-cluster-autoscaler", "")
+	}
+
 	// First run create with waitForReady=true
 	waitForReady = true // Force wait for cluster to be ready
 	connectToCivoCluster = false

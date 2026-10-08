@@ -3,6 +3,7 @@ package civo
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/civo/civogo"
@@ -30,6 +31,7 @@ func init() {
 	CreateCmd.Flags().IntVarP(&nodes, "nodes", "n", 3, "Number of nodes (default: 3)")
 	CreateCmd.Flags().StringVar(&size, "size", "g4c.kube.small", "Node size (default: g4c.kube.small)")
 	CreateCmd.Flags().BoolVar(&waitForReady, "wait", false, "Wait for cluster to be ready (default: false)")
+	CreateCmd.Flags().BoolVar(&installClusterAutoscaler, "install-cluster-autoscaler", false, "Install Cluster Autoscaler via Helm instead of Civo Marketplace (default: false)")
 }
 
 // Function to handle the "create" command logic
@@ -144,6 +146,12 @@ func checkClusterExists(client *civogo.Client, name string) (bool, error) {
 
 // Create a new Civo cluster
 func createCivoCluster(client *civogo.Client) (*civogo.KubernetesCluster, error) {
+
+	if installClusterAutoscaler {
+		applications = strings.ReplaceAll(applications, "civo-cluster-autoscaler,", "")
+		applications = strings.ReplaceAll(applications, ",civo-cluster-autoscaler", "")
+		applications = strings.ReplaceAll(applications, "civo-cluster-autoscaler", "")
+	}
 
 	applications = fmt.Sprintf("-traefik2-nodeport,%s", applications)
 	config := &civogo.KubernetesClusterConfig{
