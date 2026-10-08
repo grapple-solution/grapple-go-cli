@@ -46,6 +46,11 @@ var (
 	ingressController     string
 	additionalValuesFiles []string
 	imagePullSecret       string
+
+	// Cluster autoscaler flags
+	installClusterAutoscaler bool
+	autoscalerReplicas       int
+	autoscalerNodesConfig    string
 )
 
 var (
