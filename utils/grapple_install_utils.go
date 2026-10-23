@@ -641,19 +641,25 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 		return fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
-	// Get list of XRDs
-	xrds, err := dynamicClient.Resource(schema.GroupVersionResource{
+	// Get list of XRDs - try v2 first (Crossplane v2), fallback to v1 for backwards compatibility
+	xrdGVR := schema.GroupVersionResource{
 		Group:    "apiextensions.crossplane.io",
-		Version:  "v1",
+		Version:  "v2",
 		Resource: "compositeresourcedefinitions",
-	}).List(context.Background(), v1.ListOptions{})
+	}
+	xrds, err := dynamicClient.Resource(xrdGVR).List(context.Background(), v1.ListOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to list XRDs: %w", err)
+		// Fallback to v1 for older Crossplane clusters
+		xrdGVR.Version = "v1"
+		xrds, err = dynamicClient.Resource(xrdGVR).List(context.Background(), v1.ListOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to list XRDs: %w", err)
+		}
 	}
 
 	// Wait for each XRD to reach ready condition (Established, and Offered if claimNames is defined)
 	for _, xrd := range xrds.Items {
-		err = waitForXRDReady(dynamicClient, xrd.GetName())
+		err = waitForXRDReady(dynamicClient, xrdGVR, xrd.GetName())
 		if err != nil {
 			return fmt.Errorf("failed waiting for XRD %s: %w", xrd.GetName(), err)
 		}
@@ -663,13 +669,9 @@ func WaitForGrsfConfig(kubeClient apiv1.Interface, restConfig *rest.Config) erro
 	return nil
 }
 
-func waitForXRDReady(client dynamic.Interface, xrdName string) error {
+func waitForXRDReady(client dynamic.Interface, gvr schema.GroupVersionResource, xrdName string) error {
 	for attempts := 0; attempts < 60; attempts++ {
-		xrd, err := client.Resource(schema.GroupVersionResource{
-			Group:    "apiextensions.crossplane.io",
-			Version:  "v1",
-			Resource: "compositeresourcedefinitions",
-		}).Get(context.Background(), xrdName, v1.GetOptions{})
+		xrd, err := client.Resource(gvr).Get(context.Background(), xrdName, v1.GetOptions{})
 
 		if err != nil {
 			return err
